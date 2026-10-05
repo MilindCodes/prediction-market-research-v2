@@ -1,0 +1,51 @@
+# ---------------------------------------------------------------------------
+# Line endings
+# ---------------------------------------------------------------------------
+# Normalise every text file to LF in the repository. Working-tree endings are
+# left to the platform, so Windows checkouts still get CRLF where it matters.
+* text=auto eol=lf
+
+# Explicit text types (belt and braces for files Git might misdetect)
+*.py      text eol=lf diff=python
+*.md      text eol=lf
+*.txt     text eol=lf
+*.csv     text eol=lf
+*.json    text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.toml    text eol=lf
+*.cfg     text eol=lf
+*.ini     text eol=lf
+*.ipynb   text eol=lf
+.gitignore      text eol=lf
+.gitattributes  text eol=lf
+.editorconfig   text eol=lf
+
+# Shell scripts must keep LF or they will not execute
+*.sh      text eol=lf
+
+# ---------------------------------------------------------------------------
+# Binary files — never diff, never munge line endings
+# ---------------------------------------------------------------------------
+*.parquet binary
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.pdf     binary
+*.docx    binary
+*.doc     binary
+*.xlsx    binary
+*.pkl     binary
+*.npy     binary
+*.npz     binary
+*.h5      binary
+*.zip     binary
+*.gz      binary
+
+# ---------------------------------------------------------------------------
+# Linguist — keep the language stats honest (this is a Python project, and the
+# large tracked data/ tree should not be counted as source).
+# ---------------------------------------------------------------------------
+data/**          linguist-generated=true
+notebooks/**     linguist-vendored=true

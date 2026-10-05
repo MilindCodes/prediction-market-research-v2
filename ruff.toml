@@ -1,0 +1,64 @@
+# Ruff configuration — https://docs.astral.sh/ruff/
+# Ruff replaces flake8, isort and black for this project.
+#
+#   ruff check .     # lint
+#   ruff format .    # format
+
+line-length = 100
+target-version = "py310"
+
+extend-exclude = [
+    "data",
+    "notebooks",
+    "__pycache__",
+    ".venv",
+]
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes  (unused imports, undefined names)
+    "I",    # isort     (import ordering)
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+]
+
+ignore = [
+    "E501",  # line length is enforced by the formatter, not the linter
+    "B008",  # function call in argument default — common and intentional here
+]
+
+[lint.per-file-ignores]
+# `_build_contracts_list` is annotated `df: "pd.DataFrame"`, but pandas is only
+# imported inside the individual step functions, so there is no module-level
+# `pd` binding. The annotation is a string and is never evaluated at runtime,
+# so this is harmless today — but `typing.get_type_hints()` would raise.
+#
+# TODO: replace with a `if TYPE_CHECKING: import pandas as pd` guard at the top
+# of run_pipeline.py, then delete this ignore.
+"run_pipeline.py" = ["F821"]
+
+# Same pattern: `step_stylized` is annotated `panel: "pd.DataFrame | None"`
+# with pandas imported only inside the step functions.
+"run_smm.py" = ["F821"]
+
+# Tests deliberately re-import modules inside test bodies to exercise reloading.
+# SIM300 would rewrite `assert actual == pytest.approx(expected)` the wrong way
+# round; that ordering is the documented pytest idiom, so it stays.
+"tests/*" = ["F401", "SIM300"]
+
+[lint.isort]
+known-first-party = ["config", "src", "analysis", "run_pipeline", "run_smm"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+[lint.pydocstyle]
+convention = "numpy"
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+docstring-code-format = true

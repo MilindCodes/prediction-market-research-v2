@@ -1,0 +1,336 @@
+#!/usr/bin/env python3
+"""
+Section 4 SMM pipeline — orchestrator.
+
+Steps (run in order):
+  panel          §4.1  Build the unified long panel (contract_id, t, p, X, delta_X)
+  validate-syn   §4.2  Synthetic validation (must pass before real data)
+  stylized       §4.2  Five stylized-fact diagnostics on the real panel
+  calibrate      §4.3  Bates SMM calibration across κ grid
+  ladder         §4.4  Nested model ladder + difference-in-J selection tests
+  validate-model §4.7  Simulate selected model and overlay stylized facts
+  split          §4.8  FOMC-vs-CPI robustness split
+
+Usage
+-----
+  python run_smm.py panel
+  python run_smm.py validate-syn
+  python run_smm.py stylized
+  python run_smm.py ladder
+  python run_smm.py validate-model          # uses Bates as selected model by default
+
+Environment variables (optional — only needed if pulling new data):
+  KALSHI_KEY_ID   API key ID from the Kalshi dashboard
+  KALSHI_KEY_FILE Path to the RSA .pem private key
+"""
+from __future__ import annotations
+
+import sys
+import os
+from pathlib import Path
+
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, PROJECT_ROOT)
+os.chdir(PROJECT_ROOT)
+
+
+# ---------------------------------------------------------------------------
+# Step implementations
+# ---------------------------------------------------------------------------
+
+def _make_client():
+    """Build a KalshiClient if credentials are set, else return None."""
+    import config
+    from src.kalshi.client import KalshiClient
+
+    if config.KALSHI_KEY_FILE and config.KALSHI_KEY_ID:
+        try:
+            return KalshiClient(
+                key_id=config.KALSHI_KEY_ID,
+                key_file=config.KALSHI_KEY_FILE,
+            )
+        except Exception as e:
+            print(f"  WARNING: Could not build KalshiClient: {e}")
+    elif config.KALSHI_API_KEY:
+        return KalshiClient(api_key=config.KALSHI_API_KEY)
+
+    print("  No Kalshi credentials set — using existing raw files only.")
+    return None
+
+
+# Bootstrap resamples behind the diagonal weighting matrix W.
+# W is what the objective is measured against, so two runs at different
+# counts are not comparable: the stored §4.4 table was produced at 400
+# while several steps here passed 300, which is why `select` did not
+# reproduce smm_ladder_results_main.csv.  One constant, one W, everywhere.
+N_BOOTSTRAP: int = 400
+
+
+def step_panel(force: bool = False) -> None:
+    """§4.1  Build the SMM panel."""
+    print("\n=== Step: panel ===")
+    from src.smm.panel import SMMPanelBuilder
+
+    client = _make_client()
+    builder = SMMPanelBuilder(client=client)
+    panel = builder.build(force=force)
+    print(f"\nPanel ready: {panel['contract_id'].nunique()} contracts, "
+          f"{len(panel)} rows")
+    print("  Columns:", list(panel.columns))
+    print("  Preview:")
+    print(panel.head(8).to_string(index=False))
+
+
+def step_validate_synthetic() -> None:
+    """§4.2  Validate diagnostics on synthetic panels before real data."""
+    print("\n=== Step: validate-syn ===")
+    from src.smm.stylized_facts import StylizedFacts
+
+    sf = StylizedFacts()
+    results = sf.validate_synthetic()
+    diffusion_kurt = results["diffusion"]["fat_tails"]["excess_kurtosis"]
+    jump_kurt      = results["jump_diffusion"]["fat_tails"]["excess_kurtosis"]
+    print(f"\nSynthetic validation complete.")
+    print(f"  Diffusion kurtosis: {diffusion_kurt:.2f}  "
+          f"Jump kurtosis: {jump_kurt:.2f}")
+
+
+def step_stylized(panel: "pd.DataFrame | None" = None) -> dict:
+    """§4.2  Five stylized-fact diagnostics on real panel."""
+    print("\n=== Step: stylized ===")
+    import pandas as pd
+    from src.smm.panel import SMMPanelBuilder
+    from src.smm.stylized_facts import StylizedFacts
+
+    if panel is None:
+        panel_path = Path("data/processed/smm_panel.parquet")
+        if not panel_path.exists():
+            print("  Panel not found — running panel step first.")
+            step_panel()
+        panel = pd.read_parquet(panel_path)
+
+    sf = StylizedFacts()
+    return sf.run(panel, tag="real")
+
+
+def step_calibrate(kappa: float = 5.0) -> None:
+    """§4.3  Bates SMM calibration for a single κ (quick check)."""
+    print(f"\n=== Step: calibrate (κ={kappa}) ===")
+    import pandas as pd
+    from src.smm.bates_smm import BatesSMM
+
+    panel = pd.read_parquet("data/processed/smm_panel.parquet")
+    cal = BatesSMM(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
+    cache = cal.prepare(panel)
+    result = cal.fit_bates(cache, kappa=kappa, free_kappa=True, verbose=True)
+
+    print(f"\nBates fit (κ free, init {kappa}):")
+    print(f"  σ_v = {result.sigma_v:.4f}  σ_J = {result.sigma_J:.4f}  "
+          f"κ̂ = {result.kappa:.4f}")
+    print(f"  J   = {result.j_stat:.3f}  (χ²({result.j_dof}), p={result.j_pvalue:.3f})")
+    print("\nMoment fit:")
+    for label, real, sim in zip(
+        result.moment_labels, result.moments_real, result.moments_sim
+    ):
+        print(f"  {label:<25s}  real={real:+.4f}  sim={sim:+.4f}  "
+              f"diff={sim-real:+.4f}")
+
+
+def step_ladder(
+    kappa_grid: list[float] | None = None,
+    n_sim_multiplier: int = 20,
+    n_bootstrap: int = 400,
+    n_restarts: int = 3,
+) -> tuple:
+    """§4.4  Selection run (κ free) + §4.8 fixed-κ robustness grid."""
+    print("\n=== Step: ladder ===")
+    import pandas as pd
+    from src.smm.bates_smm import BatesSMM
+    from src.smm.nested_ladder import NestedLadder
+
+    panel = pd.read_parquet("data/processed/smm_panel.parquet")
+    kappa_grid = kappa_grid or [1.0, 5.0, 10.0]
+
+    cal = BatesSMM(
+        n_sim_multiplier=n_sim_multiplier,
+        n_bootstrap=n_bootstrap,
+        n_restarts=n_restarts,
+    )
+    ladder = NestedLadder(calibrator=cal, kappa_grid=kappa_grid)
+    main = ladder.run_selection(panel, verbose=True)   # §4.4 — the result
+    grid = ladder.run(panel, verbose=True)             # §4.8 — robustness
+    return main, grid
+
+
+def step_validate_model(model: str = "Bates") -> None:
+    """§4.7  Simulate selected model and overlay stylized facts."""
+    print(f"\n=== Step: validate-model ({model}) ===")
+    import pandas as pd
+    from src.smm.bates_smm import BatesSMM
+    from src.smm.nested_ladder import NestedLadder
+
+    panel = pd.read_parquet("data/processed/smm_panel.parquet")
+    cal = BatesSMM(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=2)
+    ladder = NestedLadder(calibrator=cal)
+    # Refit only to get the selected model.  The §4.4 headline CSVs belong
+    # to `select` / `ladder` (n_restarts=3); a 2-restart refit must not
+    # overwrite them.
+    lr = ladder.run_selection(
+        panel, verbose=True, save_as=None, moment_table_as=None
+    )
+
+    selected = {
+        "Bates":       lr.bates,
+        "Heston":      lr.heston,
+        "ConstantVol": lr.constant_vol,
+        "Merton":      lr.merton,
+    }.get(model, lr.bates)
+
+    ladder.validate_loop(panel, selected)
+
+
+def step_split() -> None:
+    """§4.8  Contract-family robustness split (families present in the
+    identity mapping; FOMC vs CPI on Kalshi).  With a single family in the
+    corpus this reduces to the main run."""
+    print("\n=== Step: split (contract families) ===")
+    import pandas as pd
+    from src.smm.bates_smm import BatesSMM
+    from src.smm.nested_ladder import NestedLadder
+
+    panel = pd.read_parquet("data/processed/smm_panel.parquet")
+    cal = BatesSMM(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=2)
+    ladder = NestedLadder(calibrator=cal)
+    results = ladder.run_family_split(panel, verbose=True)
+
+    for name, lr in results.items():
+        print(f"\n  {name}:  σ_v(B)={lr.bates.sigma_v:.4f}  "
+              f"σ_J(B)={lr.bates.sigma_J:.4f}  "
+              f"J(B)={lr.bates.j_stat:.3f}")
+
+
+def step_identify(kappa: float = 5.0) -> None:
+    """§4.3  Identification check — which params move which moments."""
+    print("\n=== Step: identify ===")
+    import pandas as pd
+    from src.smm.bates_smm import BatesSMM, identification_check
+
+    panel = pd.read_parquet("data/processed/smm_panel.parquet")
+    cal   = BatesSMM(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
+    cache = cal.prepare(panel)
+    result = cal.fit_bates(cache, kappa=kappa, free_kappa=True, verbose=True)
+    identification_check(result, cache, h_frac=0.20)
+
+
+def step_select(kappa: float = 5.0) -> None:
+    """§4.6  Which moments do the selecting."""
+    print("\n=== Step: select ===")
+    import pandas as pd
+    from src.smm.bates_smm import BatesSMM
+    from src.smm.nested_ladder import NestedLadder, moment_selection_analysis
+
+    panel  = pd.read_parquet("data/processed/smm_panel.parquet")
+    cal    = BatesSMM(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
+    ladder = NestedLadder(calibrator=cal, kappa_init=kappa)
+    lr = ladder.run_selection(panel, verbose=True)
+    moment_selection_analysis(lr)
+
+
+def step_trunc_sensitivity(kappa: float = 5.0) -> None:
+    """§4.8  Truncation sensitivity: [0.02, 0.98] vs [0.01, 0.99]."""
+    print("\n=== Step: trunc-sensitivity ===")
+    import pandas as pd
+    from src.smm.bates_smm import BatesSMM
+    from src.smm.nested_ladder import truncation_sensitivity
+
+    panel = pd.read_parquet("data/processed/smm_panel.parquet")
+    cal   = BatesSMM(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
+    truncation_sensitivity(panel, cal, kappa=kappa)
+
+
+def step_freq_sensitivity(kappa: float = 5.0) -> None:
+    """§4.8  Frequency sensitivity: daily vs 2-day vs 4-day grid (Bates only)."""
+    print("\n=== Step: freq-sensitivity ===")
+    from src.smm.bates_smm import BatesSMM
+    from src.smm.nested_ladder import frequency_sensitivity
+
+    cal = BatesSMM(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
+    frequency_sensitivity(calibrator=cal, kappa=kappa, freqs=["D", "2D", "4D"])
+
+
+def step_sampling_sensitivity(kappa: float = 5.0) -> None:
+    """§4.8  FULL ladder under each sampling scheme (the zero-increment test).
+
+    Runs ConstantVol/Heston/Merton/Bates and both difference-in-J selection
+    tests on the daily calendar baseline, three coarsened calendar grids, and
+    a revision-time (event-time) panel in which every increment is a genuine
+    price revision.  This is the run that decides whether the §4.4 jump
+    verdict survives the removal of the forward-filled zeros.
+    """
+    print("\n=== Step: sampling-sensitivity ===")
+    from src.smm.bates_smm import BatesSMM
+    from src.smm.nested_ladder import sampling_sensitivity
+
+    cal = BatesSMM(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
+    sampling_sensitivity(calibrator=cal, kappa_init=kappa)
+
+
+def step_bucketing(kappa: float = 5.0) -> None:
+    """§4.8  Cross-sectional bucketing by contract length."""
+    print("\n=== Step: bucketing ===")
+    import pandas as pd
+    from src.smm.bates_smm import BatesSMM
+    from src.smm.nested_ladder import bucketing_analysis
+
+    panel = pd.read_parquet("data/processed/smm_panel.parquet")
+    cal   = BatesSMM(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
+    bucketing_analysis(panel, cal, kappa=kappa, n_buckets=3)
+
+
+# ---------------------------------------------------------------------------
+# Help
+# ---------------------------------------------------------------------------
+
+STEPS = {
+    "panel":              ("§4.1  Build SMM panel",                             step_panel),
+    "validate-syn":       ("§4.2  Synthetic validation",                        step_validate_synthetic),
+    "stylized":           ("§4.2  Stylized facts on real data",                 step_stylized),
+    "calibrate":          ("§4.3  Bates SMM quick check (κ free)",             lambda: step_calibrate(kappa=5.0)),
+    "identify":           ("§4.3  Identification check (σ_v vs σ_J moments)",   step_identify),
+    "ladder":             ("§4.4  Selection run (κ free) + §4.8 κ grid",       step_ladder),
+    "validate-model":     ("§4.7  Validation loop (simulate selected model)",   step_validate_model),
+    "select":             ("§4.6  Which moments do the selecting",              step_select),
+    "split":              ("§4.8  Contract-family robustness split",           step_split),
+    "trunc-sensitivity":  ("§4.8  Truncation sensitivity [0.02,0.98] vs [0.01,0.99]", step_trunc_sensitivity),
+    "freq-sensitivity":   ("§4.8  Frequency sensitivity D/2D/4D (Bates only)", step_freq_sensitivity),
+    "sampling-sensitivity": ("§4.8  FULL ladder on coarsened + revision-time grids", step_sampling_sensitivity),
+    "bucketing":          ("§4.8  Cross-sectional bucketing by contract length", step_bucketing),
+}
+
+
+def show_help() -> None:
+    print(__doc__)
+    print("Available steps:")
+    for name, (desc, _) in STEPS.items():
+        print(f"  {name:<20s}  {desc}")
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    args = sys.argv[1:]
+
+    if not args or args[0] in ("help", "--help", "-h"):
+        show_help()
+        sys.exit(0)
+
+    step_name = args[0]
+    if step_name not in STEPS:
+        print(f"Unknown step: {step_name}")
+        show_help()
+        sys.exit(1)
+
+    _, fn = STEPS[step_name]
+    fn()

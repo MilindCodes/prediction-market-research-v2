@@ -1,0 +1,39 @@
+# EditorConfig — https://editorconfig.org
+# Keeps whitespace and line endings consistent across editors and platforms.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.py]
+indent_size = 4
+max_line_length = 100
+
+[*.{yml,yaml}]
+indent_size = 2
+
+[*.{json,jsonc}]
+indent_size = 2
+
+[*.{md,markdown}]
+indent_size = 2
+# Markdown uses two trailing spaces for hard line breaks.
+trim_trailing_whitespace = false
+
+[*.{csv,tsv}]
+# Never reformat data files.
+trim_trailing_whitespace = false
+insert_final_newline = false
+
+[*.ipynb]
+indent_size = 1
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab
