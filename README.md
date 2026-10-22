@@ -238,6 +238,16 @@ Builds the price panel, computes stylised facts, estimates Bates by SMM through
 a nested optimiser ladder, and runs the sensitivity analyses. Run
 `python run_smm.py help` for the current step list.
 
+### `analysis/` — standalone Section 4 checks
+
+Each runs with `python -m analysis.<name>` and writes to `data/exports/`.
+
+| Script | What it does |
+| --- | --- |
+| `fomc_event_test` | Model-free jump evidence. It dates every daily increment, compares \|ΔX\| on FOMC announcement days (mid-life vs the contract's own resolution) with all other days, and tests the gap with a within-contract permutation test. Writes `fomc_event_test.csv` in seconds. |
+| `bootstrap_diffj` | Replaces the χ² p-value of the "need jumps?" ΔJ test. It simulates no-jump (Heston) panels shaped like each real panel, re-runs the full ladder on each, and reports where the real ΔJ falls. Writes `bootstrap_diffj_<spec>.csv` plus a summary. Needs `pip install numba`; takes a few hours on all cores and resumes if stopped. |
+| `mincer_zarnowitz` | Price-unbiasedness regression of outcomes on prices. |
+
 ---
 
 ## Repository layout
@@ -255,7 +265,9 @@ a nested optimiser ladder, and runs the sensitivity analyses. Run
 │   └── cleaning.py            # Quality flags and degenerate-fit detection
 ├── analysis/
 │   ├── model_comparison.py    # MSE, AIC, BIC, QLIKE
-│   └── plots.py               # Every figure in the write-up
+│   ├── plots.py               # Every figure in the write-up
+│   ├── fomc_event_test.py     # FOMC-day |ΔX| permutation test
+│   └── bootstrap_diffj.py     # Simulated null for the ΔJ jump test
 ├── consolidated/pipeline.py   # Single-file consolidated runner
 ├── tests/                     # Config invariants, import wiring, repo hygiene
 ├── notebooks/                 # Exploratory work
