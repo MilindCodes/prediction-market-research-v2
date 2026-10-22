@@ -50,6 +50,8 @@ import os
 import re
 import time
 import warnings
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 
 import numba
 import numpy as np
@@ -81,6 +83,7 @@ REPS = {"D/calendar": 100, "D/revision": 100}       # others: DEFAULT_REPS
 DEFAULT_REPS = 50
 POWER_SPEC, POWER_REPS = "D/revision", 50
 CHI2_1_05 = float(stats.chi2.ppf(0.95, 1))         # the χ² test this replaces
+MAX_POOL_RESTARTS = 20
 
 _CPOW = ctypes.CDLL(ctypes.util.find_library("m")).pow
 _CPOW.argtypes = [ctypes.c_double, ctypes.c_double]
@@ -223,7 +226,7 @@ def run_rep(task: tuple[str, str, int]) -> dict:
     spec, null_model, rep = task
     params = null_params(spec, null_model)
     lengths = _lengths(spec)
-    t0 = time.time()
+    t0, c0 = time.time(), time.process_time()
     panel = simulate_panel(lengths, params, np.random.default_rng(_seed(spec, null_model, rep)))
     row = {"spec": spec, "null_model": null_model, "rep": rep,
            "seed": f"{SEED}-{SPECS.index(spec)}-{NULL_MODELS.index(null_model)}-{rep}",
@@ -248,7 +251,8 @@ def run_rep(task: tuple[str, str, int]) -> dict:
                         "diff_j": float(m.group(5))})
     except Exception as e:               # anything else: keep the run, say why
         row["error"] = f"{type(e).__name__}: {e}"
-    row["seconds"] = round(time.time() - t0, 1)
+    row["seconds"] = round(time.time() - t0, 1)          # wall clock, includes any sleep
+    row["cpu_seconds"] = round(time.process_time() - c0, 1)
     return row
 
 
@@ -372,19 +376,37 @@ def main(argv: list[str] | None = None) -> None:
     tasks.sort(key=lambda t: (t[2], order[t[:2]]))
     print(f"{len(tasks)} replications to run on {args.workers} workers.")
 
+    # ProcessPoolExecutor, not multiprocessing.Pool: when a worker dies (macOS
+    # can kill them across a sleep/wake) Pool silently loses its task and
+    # hangs at the end, whereas the executor raises and the lost reps are
+    # resubmitted on a fresh pool.
     import multiprocessing as mp
-    t0 = time.time()
-    with mp.get_context("spawn").Pool(args.workers, initializer=_init_worker) as pool:
-        for i, row in enumerate(pool.imap_unordered(run_rep, tasks), 1):
-            key = (row["spec"], row["null_model"])
-            rows[key].append(row)
-            _write(*key, rows[key])
-            flag = f"  ERROR {row['error'][:60]}" if row.get("error") else ""
-            print(f"  [{i:>4}/{len(tasks)}] {key[0]:<20} {key[1]:<7} rep {row['rep']:>3}  "
-                  f"ΔJ={row.get('diff_j', np.nan):>12,.1f}  {row['seconds']:>6.1f}s  "
-                  f"elapsed {(time.time() - t0) / 60:6.1f} min{flag}", flush=True)
-            if i % 10 == 0:
-                _write_summary(jobs)
+    t0, i, pending = time.time(), 0, list(tasks)
+    for attempt in range(MAX_POOL_RESTARTS + 1):
+        try:
+            with ProcessPoolExecutor(args.workers, mp_context=mp.get_context("spawn"),
+                                     initializer=_init_worker) as ex:
+                futures = {ex.submit(run_rep, t): t for t in pending}
+                for fut in as_completed(futures):
+                    row = fut.result()
+                    pending.remove(futures[fut])
+                    i += 1
+                    key = (row["spec"], row["null_model"])
+                    rows[key].append(row)
+                    _write(*key, rows[key])
+                    flag = f"  ERROR {row['error'][:60]}" if row.get("error") else ""
+                    print(f"  [{i:>4}/{len(tasks)}] {key[0]:<20} {key[1]:<7} "
+                          f"rep {row['rep']:>3}  ΔJ={row.get('diff_j', np.nan):>12,.1f}  "
+                          f"cpu {row['cpu_seconds']:>6.1f}s  "
+                          f"elapsed {(time.time() - t0) / 60:6.1f} min{flag}", flush=True)
+                    if i % 10 == 0:
+                        _write_summary(jobs)
+            break
+        except BrokenProcessPool:
+            if attempt == MAX_POOL_RESTARTS:
+                raise
+            print(f"  A worker died; restarting the pool for the {len(pending)} "
+                  "remaining replications.", flush=True)
 
     summary = _write_summary(jobs)
     print("\n=== Bootstrap ΔJ (jumps) — p = (#{sim ΔJ ≥ real} + 1) / (N + 1) ===")
