@@ -18,6 +18,7 @@ Usage
   python run_smm.py stylized
   python run_smm.py ladder
   python run_smm.py validate-model          # uses Bates as selected model by default
+  python run_smm.py ladder --legacy         # the v1 estimator, v1 output paths
 
 Environment variables (optional — only needed if pulling new data):
   KALSHI_KEY_ID   API key ID from the Kalshi dashboard
@@ -56,6 +57,20 @@ def _make_client():
 
     print("  No Kalshi credentials set — using existing raw files only.")
     return None
+
+
+# `--legacy` anywhere on the command line runs the v1 estimator exactly as
+# tagged at v1-paper-draft and writes to the v1 paths (data/processed/).
+# Without it every step uses the corrected (v2) estimator and writes under
+# data/processed/v2/, so the CSVs the first draft cites are never overwritten.
+LEGACY: bool = False
+
+
+def _calibrator(**kwargs):
+    """The SMM calibrator every step shares: v2 by default, v1 with --legacy."""
+    from src.smm.bates_smm import BatesSMM
+
+    return BatesSMM.legacy(**kwargs) if LEGACY else BatesSMM(**kwargs)
 
 
 # Bootstrap resamples behind the diagonal weighting matrix W.
@@ -120,7 +135,7 @@ def step_calibrate(kappa: float = 5.0) -> None:
     from src.smm.bates_smm import BatesSMM
 
     panel = pd.read_parquet("data/processed/smm_panel.parquet")
-    cal = BatesSMM(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
+    cal = _calibrator(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
     cache = cal.prepare(panel)
     result = cal.fit_bates(cache, kappa=kappa, free_kappa=True, verbose=True)
 
@@ -151,7 +166,7 @@ def step_ladder(
     panel = pd.read_parquet("data/processed/smm_panel.parquet")
     kappa_grid = kappa_grid or [1.0, 5.0, 10.0]
 
-    cal = BatesSMM(
+    cal = _calibrator(
         n_sim_multiplier=n_sim_multiplier,
         n_bootstrap=n_bootstrap,
         n_restarts=n_restarts,
@@ -170,7 +185,7 @@ def step_validate_model(model: str = "Bates") -> None:
     from src.smm.nested_ladder import NestedLadder
 
     panel = pd.read_parquet("data/processed/smm_panel.parquet")
-    cal = BatesSMM(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=2)
+    cal = _calibrator(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=2)
     ladder = NestedLadder(calibrator=cal)
     # Refit only to get the selected model.  The §4.4 headline CSVs belong
     # to `select` / `ladder` (n_restarts=3); a 2-restart refit must not
@@ -199,7 +214,7 @@ def step_split() -> None:
     from src.smm.nested_ladder import NestedLadder
 
     panel = pd.read_parquet("data/processed/smm_panel.parquet")
-    cal = BatesSMM(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=2)
+    cal = _calibrator(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=2)
     ladder = NestedLadder(calibrator=cal)
     results = ladder.run_family_split(panel, verbose=True)
 
@@ -216,7 +231,7 @@ def step_identify(kappa: float = 5.0) -> None:
     from src.smm.bates_smm import BatesSMM, identification_check
 
     panel = pd.read_parquet("data/processed/smm_panel.parquet")
-    cal   = BatesSMM(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
+    cal   = _calibrator(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
     cache = cal.prepare(panel)
     result = cal.fit_bates(cache, kappa=kappa, free_kappa=True, verbose=True)
     identification_check(result, cache, h_frac=0.20, calibrator=cal)
@@ -230,7 +245,7 @@ def step_select(kappa: float = 5.0) -> None:
     from src.smm.nested_ladder import NestedLadder, moment_selection_analysis
 
     panel  = pd.read_parquet("data/processed/smm_panel.parquet")
-    cal    = BatesSMM(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
+    cal    = _calibrator(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
     ladder = NestedLadder(calibrator=cal, kappa_init=kappa)
     lr = ladder.run_selection(panel, verbose=True)
     from src.smm.nested_ladder import processed_dir
@@ -245,7 +260,7 @@ def step_trunc_sensitivity(kappa: float = 5.0) -> None:
     from src.smm.nested_ladder import truncation_sensitivity
 
     panel = pd.read_parquet("data/processed/smm_panel.parquet")
-    cal   = BatesSMM(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
+    cal   = _calibrator(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
     truncation_sensitivity(panel, cal, kappa=kappa)
 
 
@@ -255,7 +270,7 @@ def step_freq_sensitivity(kappa: float = 5.0) -> None:
     from src.smm.bates_smm import BatesSMM
     from src.smm.nested_ladder import frequency_sensitivity
 
-    cal = BatesSMM(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
+    cal = _calibrator(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
     frequency_sensitivity(calibrator=cal, kappa=kappa, freqs=["D", "2D", "4D"])
 
 
@@ -272,7 +287,7 @@ def step_sampling_sensitivity(kappa: float = 5.0) -> None:
     from src.smm.bates_smm import BatesSMM
     from src.smm.nested_ladder import sampling_sensitivity
 
-    cal = BatesSMM(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
+    cal = _calibrator(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
     sampling_sensitivity(calibrator=cal, kappa_init=kappa)
 
 
@@ -284,7 +299,7 @@ def step_bucketing(kappa: float = 5.0) -> None:
     from src.smm.nested_ladder import bucketing_analysis
 
     panel = pd.read_parquet("data/processed/smm_panel.parquet")
-    cal   = BatesSMM(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
+    cal   = _calibrator(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
     bucketing_analysis(panel, cal, kappa=kappa, n_buckets=3)
 
 
@@ -322,6 +337,9 @@ def show_help() -> None:
 
 if __name__ == "__main__":
     args = sys.argv[1:]
+    if "--legacy" in args:
+        LEGACY = True
+        args = [a for a in args if a != "--legacy"]
 
     if not args or args[0] in ("help", "--help", "-h"):
         show_help()

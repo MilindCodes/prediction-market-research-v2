@@ -210,6 +210,7 @@ class NestedLadder:
         the headline §4.4 artifacts.
         """
         cache = self.calibrator.prepare(panel)
+        self.last_cache = cache        # for diagnostics that need the CRN draws
 
         if verbose:
             print(f"\n=== §4.4 Nested Ladder — selection run (κ free) ===")
@@ -775,6 +776,8 @@ class NestedLadder:
                     "n_sim": res.n_sim,
                     "objective": res.objective_value,
                 })
+                if not self.calibrator.is_legacy:      # v1 CSV schema unchanged
+                    rows[-1]["stale_q"] = res.stale_q
         df = pd.DataFrame(rows)
         out = processed_dir(self.calibrator) / filename
         df.to_csv(out, index=False, float_format="%.6f")
@@ -974,12 +977,21 @@ def truncation_sensitivity(
                 def panel_path(self):
                     return out_panel
 
-            panel = _ClipBuilder(client=None).build(tickers=tickers, force=True)
+            # v1 rebuilt on every run; corrected runs read the cached panel
+            # so old and new are fitted to byte-identical data.
+            panel = _ClipBuilder(client=None).build(
+                tickers=tickers, force=calibrator.is_legacy)
+
+            # The simulator's observation process must clip where the panel
+            # was clipped.
+            cal_clip = calibrator if calibrator.observation == "none" \
+                else calibrator.replace(clip=(clip_lo, clip_hi))
 
             # Same ladder path as §4.4 so the baseline row is comparable.
-            ladder = NestedLadder(calibrator=calibrator, kappa_init=kappa)
-            res = ladder.run_selection(panel, verbose=False,
-                                       save_as=None, moment_table_as=None).bates
+            ladder = NestedLadder(calibrator=cal_clip, kappa_init=kappa)
+            lr_clip = ladder.run_selection(panel, verbose=False,
+                                           save_as=None, moment_table_as=None)
+            res = lr_clip.bates
             print(f"    σ_v={res.sigma_v:.4f}  σ_J={res.sigma_J:.4f}  "
                   f"κ̂={res.kappa:.6f}  J={res.j_stat:.3f}  n={res.n_real}")
 
@@ -991,6 +1003,15 @@ def truncation_sensitivity(
                 "j_stat": res.j_stat, "j_pvalue": res.j_pvalue,
                 "n_real": res.n_real,
             })
+            if not calibrator.is_legacy:
+                rows[-1].update({
+                    "se_sigma_v": res.se_sigma_v, "se_sigma_J": res.se_sigma_J,
+                    "j_dof": res.j_dof, "stale_q": res.stale_q,
+                    "j_heston": lr_clip.heston.j_stat,
+                    "diffj_sv": lr_clip.test_sv.diff_j, "p_sv": lr_clip.test_sv.p_value,
+                    "diffj_jumps": lr_clip.test_jumps.diff_j,
+                    "p_jumps": lr_clip.test_jumps.p_value,
+                })
     finally:
         _panel_mod.CLIP_LO, _panel_mod.CLIP_HI = saved_lo, saved_hi
 
@@ -1106,6 +1127,76 @@ def _panel_descriptives(panel: pd.DataFrame) -> dict:
     }
 
 
+def sampling_rows(
+    freq: str,
+    sampling: str,
+    panel: pd.DataFrame,
+    lr: LadderResult,
+    calibrator: "BatesSMM | None" = None,
+    cache: "dict | None" = None,
+) -> tuple[dict, list[dict]]:
+    """One sampling spec's summary row and per-model rows for the §4.8 CSVs.
+
+    For a non-legacy calibrator the rows also carry the observation-process
+    calibration check: the real share of unchanged prices (split into
+    at-the-clip and other) beside the simulated one at the fitted Heston and
+    Bates models, and the stale-quote probability each model solved for.
+    """
+    label = f"{freq}/{sampling}"
+    row = {"freq": freq, "sampling": sampling, "spec": label}
+    row.update(_panel_descriptives(panel))
+    row.update({
+        "theta":          lr.bates.theta,
+        "lambda":         lr.bates.lambda_,
+        "sigma_v_heston": lr.heston.sigma_v,
+        "sigma_v_bates":  lr.bates.sigma_v,
+        "sigma_J_bates":  lr.bates.sigma_J,
+        "sigma_J_merton": lr.merton.sigma_J,
+        "kappa_bates":    lr.bates.kappa,
+        "j_cv":           lr.constant_vol.j_stat,
+        "j_heston":       lr.heston.j_stat,
+        "j_merton":       lr.merton.j_stat,
+        "j_bates":        lr.bates.j_stat,
+        "diffj_sv":       lr.test_sv.diff_j,
+        "p_sv":           lr.test_sv.p_value,
+        "sv_selected":    lr.test_sv.reject_at_05,
+        "diffj_jumps":    lr.test_jumps.diff_j,
+        "p_jumps":        lr.test_jumps.p_value,
+        "jumps_selected": lr.test_jumps.reject_at_05,
+    })
+    v2 = calibrator is not None and not calibrator.is_legacy
+    if v2 and cache is not None and "zero_real" in cache:
+        row["theta_target"] = cache["theta_target"]
+        row["kappa_heston"] = lr.heston.kappa
+        for k, v in cache["zero_real"].items():
+            row[f"real_{k}"] = v
+        for name, res in (("heston", lr.heston), ("bates", lr.bates)):
+            for k, v in calibrator.simulated_zero_shares(res, cache).items():
+                row[f"sim_{k}_{name}"] = v
+
+    full = []
+    for res in (lr.constant_vol, lr.heston, lr.merton, lr.bates):
+        full.append({
+            "spec": label, "freq": freq, "sampling": sampling,
+            "model": res.model,
+            "sigma_v": res.sigma_v, "se_sigma_v": res.se_sigma_v,
+            "sigma_J": res.sigma_J, "se_sigma_J": res.se_sigma_J,
+            "kappa": res.kappa, "se_kappa": res.se_kappa,
+            "theta": res.theta, "lambda": res.lambda_,
+            "j_stat": res.j_stat, "j_dof": res.j_dof,
+            "j_pvalue": res.j_pvalue,
+            "n_real": res.n_real, "n_sim": res.n_sim,
+            "objective": res.objective_value,
+        })
+        if v2:
+            full[-1]["stale_q"] = res.stale_q
+            for lab, real, sim in zip(res.moment_labels, res.moments_real,
+                                      res.moments_sim):
+                full[-1][f"real[{lab}]"] = real
+                full[-1][f"sim[{lab}]"] = sim
+    return row, full
+
+
 def sampling_sensitivity(
     calibrator: "BatesSMM | None" = None,
     kappa_init: float = 5.0,
@@ -1184,42 +1275,10 @@ def sampling_sensitivity(
         lr = ladder.run_selection(panel, verbose=verbose,
                                   save_as=None, moment_table_as=None)
 
-        row = {"freq": freq, "sampling": sampling, "spec": label}
-        row.update(desc)
-        row.update({
-            "theta":          lr.bates.theta,
-            "lambda":         lr.bates.lambda_,
-            "sigma_v_heston": lr.heston.sigma_v,
-            "sigma_v_bates":  lr.bates.sigma_v,
-            "sigma_J_bates":  lr.bates.sigma_J,
-            "sigma_J_merton": lr.merton.sigma_J,
-            "kappa_bates":    lr.bates.kappa,
-            "j_cv":           lr.constant_vol.j_stat,
-            "j_heston":       lr.heston.j_stat,
-            "j_merton":       lr.merton.j_stat,
-            "j_bates":        lr.bates.j_stat,
-            "diffj_sv":       lr.test_sv.diff_j,
-            "p_sv":           lr.test_sv.p_value,
-            "sv_selected":    lr.test_sv.reject_at_05,
-            "diffj_jumps":    lr.test_jumps.diff_j,
-            "p_jumps":        lr.test_jumps.p_value,
-            "jumps_selected": lr.test_jumps.reject_at_05,
-        })
+        row, full = sampling_rows(freq, sampling, panel, lr, calibrator,
+                                  getattr(ladder, "last_cache", None))
         summary_rows.append(row)
-
-        for res in (lr.constant_vol, lr.heston, lr.merton, lr.bates):
-            full_rows.append({
-                "spec": label, "freq": freq, "sampling": sampling,
-                "model": res.model,
-                "sigma_v": res.sigma_v, "se_sigma_v": res.se_sigma_v,
-                "sigma_J": res.sigma_J, "se_sigma_J": res.se_sigma_J,
-                "kappa": res.kappa, "se_kappa": res.se_kappa,
-                "theta": res.theta, "lambda": res.lambda_,
-                "j_stat": res.j_stat, "j_dof": res.j_dof,
-                "j_pvalue": res.j_pvalue,
-                "n_real": res.n_real, "n_sim": res.n_sim,
-                "objective": res.objective_value,
-            })
+        full_rows.extend(full)
 
     summary = pd.DataFrame(summary_rows)
     full    = pd.DataFrame(full_rows)

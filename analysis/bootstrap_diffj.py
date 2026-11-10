@@ -1,4 +1,10 @@
-"""Parametric bootstrap for the difference-in-J jump test (§4.4 / §4.8).
+"""Parametric bootstrap for the difference-in-J jump test (§4.4 / §4.8) — v1.
+
+This is the bootstrap behind the FIRST draft: it runs the v1 estimator
+(BatesSMM.legacy) and writes data/exports/bootstrap_diffj_*.csv.  It is kept
+so those numbers stay reproducible.  The corrected estimator's bootstrap,
+whose null panels go through the clip / tick / stale-quote observation
+process, is `python -m analysis.rerun_v2 bootstrap` (data/exports/v2/).
 
 The ladder's "need jumps?" verdict reads ΔJ = J(Heston) − J(Bates) against
 χ²(1).  On panels simulated with no jumps at all that test still rejects in
@@ -124,7 +130,7 @@ def _install() -> None:
 
 def check_simulator(n: int = 82_820, n_random: int = 40) -> int:
     """Raise unless the Numba copy reproduces the original path bit for bit."""
-    randoms = BatesSMM()._draw_randoms(n, rho=0.0)
+    randoms = BatesSMM.legacy()._draw_randoms(n, rho=0.0)
     ladder = pd.read_csv(LADDER_CSV)
     cases = [tuple(r) for r in ladder[["sigma_v", "sigma_J", "kappa", "theta", "lambda"]]
              .itertuples(index=False)]
@@ -196,7 +202,7 @@ def _seed(spec: str, null_model: str, rep: int) -> np.random.SeedSequence:
 
 
 def _fit(panel: pd.DataFrame):
-    ladder = NestedLadder(calibrator=BatesSMM(**MAIN_RUN), kappa_init=KAPPA_INIT)
+    ladder = NestedLadder(calibrator=BatesSMM.legacy(**MAIN_RUN), kappa_init=KAPPA_INIT)
     with contextlib.redirect_stdout(io.StringIO()):     # run_selection always prints
         return ladder.run_selection(panel, verbose=False, save_as=None, moment_table_as=None)
 

@@ -78,16 +78,20 @@ The observation process
               extra pass, and it spends one degree of freedom.
 
 Numba is used when installed (≈200× faster) and is optional: without it the
-same code runs as plain Python/NumPy and gives the same numbers.
+same code runs as plain Python/NumPy and gives the same numbers (set
+SMM_DISABLE_NUMBA=1 to force that path, e.g. to check the two agree).
 """
 from __future__ import annotations
 
 import math
+import os
 
 import numpy as np
 import pandas as pd
 
 try:                                    # optional accelerator
+    if os.environ.get("SMM_DISABLE_NUMBA"):     # force the plain-Python path
+        raise ImportError("numba disabled by SMM_DISABLE_NUMBA")
     import numba
 
     def _jit(fn):

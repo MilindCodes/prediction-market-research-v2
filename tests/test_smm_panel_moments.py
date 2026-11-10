@@ -308,4 +308,6 @@ def test_variance_targeting_carves_jumps_out_of_the_total():
     cal = BatesSMM(theta_mode="variance_target")
     assert cal.latent_theta(0.10, 0.02, 1.0) == pytest.approx(0.08)
     assert cal.latent_theta(0.10, 0.02, 5.0) > 0.0            # floored, never negative
-    assert BatesSMM().latent_theta(0.10, 0.02, 1.0) == 0.10
+    assert BatesSMM(theta_mode="truncated").latent_theta(0.10, 0.02, 1.0) == 0.10
+    assert BatesSMM().theta_mode == "variance_target"
+    assert BatesSMM.legacy().theta_mode == "truncated"

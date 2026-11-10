@@ -91,15 +91,17 @@ See src/smm/panel_moments.py for the full rationale.  In short:
       against 21% repeated prices in the daily panel.  observation="none"
       is v1 (latent increments observed directly).
 
-  theta_mode="truncated"        θ plug-in targets the variance of increments
-      within 3 SD, as in v1.  theta_mode="variance_target" targets the FULL
-      variance and gives the diffusion θ − λσ_J², so that total variance is
-      matched with or without jumps.  (With "truncated" the plug-in is only
-      29% of the daily panel's variance and σ_J is the one parameter that
-      can close the gap — see README, "What changed in v2".)  Under
-      observation="tick" the plug-in is solved THROUGH the observation
-      process: θ is the latent variance at which the constant-vol model
-      reproduces the target.
+  theta_mode="variance_target" (default)  the θ plug-in targets the FULL
+      variance and the diffusion gets θ − λσ_J², so total variance is
+      matched with or without jumps.  theta_mode="truncated" is v1: θ
+      targets the variance of increments within 3 SD and jump variance is
+      added on top.  On the daily panel that plug-in is only 29% of the
+      variance, so σ_J is the one parameter that can close the gap; in the
+      null/power simulations it gives a jump test with 25% power against
+      85% under variance targeting (data/exports/v2/theta_truncated/).
+      Under an observation process the plug-in is solved THROUGH it: θ is
+      the latent variance at which the constant-vol model reproduces the
+      target.
 
 Any non-legacy calibrator writes its outputs under data/processed/v2/ (see
 `output_subdir`), never over the v1 CSVs.
@@ -293,7 +295,7 @@ class BatesSMM:
         [LOG_ODDS_CLIP_LO, LOG_ODDS_CLIP_HI], the clip the panel was built at.
     burn_in : int
         Variance burn-in steps per simulated contract (v starts at θ).
-    theta_mode : {"truncated", "variance_target"}
+    theta_mode : {"variance_target", "truncated"}
         What the θ plug-in targets; "truncated" is v1.
     output_subdir : str | None
         Sub-directory of data/processed/ that result CSVs are written to.
@@ -322,7 +324,7 @@ class BatesSMM:
         tick: float = 0.001,
         clip: "tuple[float, float] | None" = None,
         burn_in: int = pm.DEFAULT_BURN_IN,
-        theta_mode: str = "truncated",
+        theta_mode: str = "variance_target",
         output_subdir: "str | None" = None,
     ):
         weights = weights or "contract"
