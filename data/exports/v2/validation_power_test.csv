@@ -1,0 +1,13 @@
+variant,spec,dgp,test,alpha,n_runs,selected_chi2_share,selected_simulated_cv_share,simulated_critical,chi2_critical,stat_median,n_errors
+v2,D/calendar,Bates (fitted),need jumps? ΔJ Heston→Bates,0.100000,100,0.930000,0.960000,1.155025,2.705543,8.048077,0
+v2,D/calendar,Bates (fitted),need jumps? ΔJ Heston→Bates,0.050000,100,0.840000,0.960000,1.809587,3.841459,8.048077,0
+v2,D/calendar,Bates (fitted),need jumps? ΔJ Heston→Bates,0.010000,100,0.610000,0.710000,5.375063,6.634897,8.048077,0
+v2,D/calendar,Heston (no jumps),need SV? ΔJ ConstantVol→Heston,0.100000,100,0.920000,0.260000,18.274221,4.605170,11.939481,0
+v2,D/calendar,Heston (no jumps),need SV? ΔJ ConstantVol→Heston,0.050000,100,0.850000,0.100000,25.190892,5.991465,11.939481,0
+v2,D/calendar,Heston (no jumps),need SV? ΔJ ConstantVol→Heston,0.010000,100,0.630000,0.050000,33.347568,9.210340,11.939481,0
+v2,D/calendar,Bates (fitted),need SV? ΔJ ConstantVol→Heston,0.100000,100,0.570000,0.140000,18.274221,4.605170,5.376307,0
+v2,D/calendar,Bates (fitted),need SV? ΔJ ConstantVol→Heston,0.050000,100,0.460000,0.060000,25.190892,5.991465,5.376307,0
+v2,D/calendar,Bates (fitted),need SV? ΔJ ConstantVol→Heston,0.010000,100,0.340000,0.040000,33.347568,9.210340,5.376307,0
+v2,D/calendar,Bates (fitted),"need SV, given jumps? ΔJ Merton→Bates",0.100000,100,0.640000,0.320000,9.571700,4.605170,6.405033,0
+v2,D/calendar,Bates (fitted),"need SV, given jumps? ΔJ Merton→Bates",0.050000,100,0.510000,0.290000,10.118477,5.991465,6.405033,0
+v2,D/calendar,Bates (fitted),"need SV, given jumps? ΔJ Merton→Bates",0.010000,100,0.330000,0.150000,14.358459,9.210340,6.405033,0

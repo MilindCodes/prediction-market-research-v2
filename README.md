@@ -267,9 +267,9 @@ Two further changes came out of doing the above:
 - **Use simulated p-values, not χ², for everything except the jump test.**
   With 39 contracts the weights are noisy, and the J-statistic at the true
   model is heavy-tailed. The Heston→Bates difference is correctly sized (3%
-  rejections at a nominal 5%); the ConstantVol→Heston difference and the
-  overall J are not (40% and 25%). `analysis.rerun_v2 bootstrap` simulates
-  the reference distributions.
+  rejections at a nominal 5%); the SV differences and the overall J are not
+  (16–40% and 25%). `analysis.rerun_v2 bootstrap` simulates the reference
+  distributions from no-jump, constant-vol and jump-only panels.
 
 Corrected runs write under `data/processed/v2/` and `data/exports/v2/` and
 never over the v1 CSVs. `python run_smm.py <step> --legacy` runs any step with

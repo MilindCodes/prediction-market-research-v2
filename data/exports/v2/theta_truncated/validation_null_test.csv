@@ -1,0 +1,7 @@
+variant,spec,dgp,test,alpha,n_runs,n_reject,reject_share,ci95_lo,ci95_hi,nominal,chi2_critical,simulated_critical,stat_mean,stat_median,n_errors
+theta_truncated,D/calendar,Heston (no jumps),need jumps? (Heston vs Bates),0.100000,40,0,0.000000,0.000000,0.087622,0.100000,2.705543,1.089478,0.266689,0.005768,0
+theta_truncated,D/calendar,Heston (no jumps),need jumps? (Heston vs Bates),0.050000,40,0,0.000000,0.000000,0.087622,0.050000,3.841459,1.279862,0.266689,0.005768,0
+theta_truncated,D/calendar,Heston (no jumps),need jumps? (Heston vs Bates),0.010000,40,0,0.000000,0.000000,0.087622,0.010000,6.634897,2.367003,0.266689,0.005768,0
+theta_truncated,D/calendar,Heston (no jumps),need SV? (ConstantVol vs Heston),0.100000,40,40,1.000000,0.912378,1.000000,,4.605170,102.307239,74.964807,73.854546,0
+theta_truncated,D/calendar,Heston (no jumps),need SV? (ConstantVol vs Heston),0.050000,40,40,1.000000,0.912378,1.000000,,5.991465,111.096692,74.964807,73.854546,0
+theta_truncated,D/calendar,Heston (no jumps),need SV? (ConstantVol vs Heston),0.010000,40,40,1.000000,0.912378,1.000000,,9.210340,114.166751,74.964807,73.854546,0
