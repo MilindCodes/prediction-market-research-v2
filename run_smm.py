@@ -219,7 +219,7 @@ def step_identify(kappa: float = 5.0) -> None:
     cal   = BatesSMM(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
     cache = cal.prepare(panel)
     result = cal.fit_bates(cache, kappa=kappa, free_kappa=True, verbose=True)
-    identification_check(result, cache, h_frac=0.20)
+    identification_check(result, cache, h_frac=0.20, calibrator=cal)
 
 
 def step_select(kappa: float = 5.0) -> None:
@@ -233,7 +233,8 @@ def step_select(kappa: float = 5.0) -> None:
     cal    = BatesSMM(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
     ladder = NestedLadder(calibrator=cal, kappa_init=kappa)
     lr = ladder.run_selection(panel, verbose=True)
-    moment_selection_analysis(lr)
+    from src.smm.nested_ladder import processed_dir
+    moment_selection_analysis(lr, out_dir=processed_dir(cal))
 
 
 def step_trunc_sensitivity(kappa: float = 5.0) -> None:
