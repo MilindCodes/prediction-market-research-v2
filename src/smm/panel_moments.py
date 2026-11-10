@@ -584,7 +584,7 @@ def simulate_panel_stats(sigma_v: float, sigma_J: float, kappa: float, theta: fl
                          observation: str = "none", tick: float = 0.001,
                          clip: tuple[float, float] = (0.02, 0.98),
                          collapse: bool = False, stale_q: float = 0.0,
-                         zero_target: "float | None" = None,
+                         zero_target: float | None = None,
                          ) -> tuple[np.ndarray, float]:
     """Per-contract statistics of n_rep simulated panels.
 

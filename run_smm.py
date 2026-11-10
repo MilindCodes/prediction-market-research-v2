@@ -114,7 +114,6 @@ def step_stylized(panel: "pd.DataFrame | None" = None) -> dict:
     """§4.2  Five stylized-fact diagnostics on real panel."""
     print("\n=== Step: stylized ===")
     import pandas as pd
-    from src.smm.panel import SMMPanelBuilder
     from src.smm.stylized_facts import StylizedFacts
 
     if panel is None:
@@ -132,7 +131,6 @@ def step_calibrate(kappa: float = 5.0) -> None:
     """§4.3  Bates SMM calibration for a single κ (quick check)."""
     print(f"\n=== Step: calibrate (κ={kappa}) ===")
     import pandas as pd
-    from src.smm.bates_smm import BatesSMM
 
     panel = pd.read_parquet("data/processed/smm_panel.parquet")
     cal = _calibrator(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
@@ -160,7 +158,6 @@ def step_ladder(
     """§4.4  Selection run (κ free) + §4.8 fixed-κ robustness grid."""
     print("\n=== Step: ladder ===")
     import pandas as pd
-    from src.smm.bates_smm import BatesSMM
     from src.smm.nested_ladder import NestedLadder
 
     panel = pd.read_parquet("data/processed/smm_panel.parquet")
@@ -181,7 +178,6 @@ def step_validate_model(model: str = "Bates") -> None:
     """§4.7  Simulate selected model and overlay stylized facts."""
     print(f"\n=== Step: validate-model ({model}) ===")
     import pandas as pd
-    from src.smm.bates_smm import BatesSMM
     from src.smm.nested_ladder import NestedLadder
 
     panel = pd.read_parquet("data/processed/smm_panel.parquet")
@@ -210,7 +206,6 @@ def step_split() -> None:
     corpus this reduces to the main run."""
     print("\n=== Step: split (contract families) ===")
     import pandas as pd
-    from src.smm.bates_smm import BatesSMM
     from src.smm.nested_ladder import NestedLadder
 
     panel = pd.read_parquet("data/processed/smm_panel.parquet")
@@ -228,7 +223,7 @@ def step_identify(kappa: float = 5.0) -> None:
     """§4.3  Identification check — which params move which moments."""
     print("\n=== Step: identify ===")
     import pandas as pd
-    from src.smm.bates_smm import BatesSMM, identification_check
+    from src.smm.bates_smm import identification_check
 
     panel = pd.read_parquet("data/processed/smm_panel.parquet")
     cal   = _calibrator(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
@@ -241,7 +236,6 @@ def step_select(kappa: float = 5.0) -> None:
     """§4.6  Which moments do the selecting."""
     print("\n=== Step: select ===")
     import pandas as pd
-    from src.smm.bates_smm import BatesSMM
     from src.smm.nested_ladder import NestedLadder, moment_selection_analysis
 
     panel  = pd.read_parquet("data/processed/smm_panel.parquet")
@@ -256,7 +250,6 @@ def step_trunc_sensitivity(kappa: float = 5.0) -> None:
     """§4.8  Truncation sensitivity: [0.02, 0.98] vs [0.01, 0.99]."""
     print("\n=== Step: trunc-sensitivity ===")
     import pandas as pd
-    from src.smm.bates_smm import BatesSMM
     from src.smm.nested_ladder import truncation_sensitivity
 
     panel = pd.read_parquet("data/processed/smm_panel.parquet")
@@ -267,7 +260,6 @@ def step_trunc_sensitivity(kappa: float = 5.0) -> None:
 def step_freq_sensitivity(kappa: float = 5.0) -> None:
     """§4.8  Frequency sensitivity: daily vs 2-day vs 4-day grid (Bates only)."""
     print("\n=== Step: freq-sensitivity ===")
-    from src.smm.bates_smm import BatesSMM
     from src.smm.nested_ladder import frequency_sensitivity
 
     cal = _calibrator(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
@@ -284,7 +276,6 @@ def step_sampling_sensitivity(kappa: float = 5.0) -> None:
     verdict survives the removal of the forward-filled zeros.
     """
     print("\n=== Step: sampling-sensitivity ===")
-    from src.smm.bates_smm import BatesSMM
     from src.smm.nested_ladder import sampling_sensitivity
 
     cal = _calibrator(n_sim_multiplier=20, n_bootstrap=N_BOOTSTRAP, n_restarts=3)
@@ -295,7 +286,6 @@ def step_bucketing(kappa: float = 5.0) -> None:
     """§4.8  Cross-sectional bucketing by contract length."""
     print("\n=== Step: bucketing ===")
     import pandas as pd
-    from src.smm.bates_smm import BatesSMM
     from src.smm.nested_ladder import bucketing_analysis
 
     panel = pd.read_parquet("data/processed/smm_panel.parquet")

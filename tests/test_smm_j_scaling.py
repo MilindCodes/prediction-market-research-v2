@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.smm.bates_smm import BatesSMM, N_MOMENTS, _j_test
+from src.smm.bates_smm import N_MOMENTS, BatesSMM, _j_test
 
 THETA = 0.04
 N_CONTRACTS, N_PER_CONTRACT = 8, 60

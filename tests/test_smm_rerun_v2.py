@@ -92,3 +92,16 @@ def test_drop_opening_variant_removes_one_increment_per_contract():
 
 def test_repo_paths_exist():
     assert Path(rerun_v2.__file__).name == "rerun_v2.py"
+
+
+def test_null_models_keep_their_seed_positions_and_merton_has_jumps_only():
+    """NULL_MODELS indexes the seed, so the first three must never move."""
+    assert rerun_v2.NULL_MODELS[:3] == ("Heston", "Bates", "ConstantVol")
+    assert set(rerun_v2._SUFFIX) == set(rerun_v2.NULL_MODELS)
+    assert len(set(rerun_v2._SUFFIX.values())) == len(rerun_v2._SUFFIX)
+    if not rerun_v2.ladder_csv("v2").exists():
+        pytest.skip("v2 ladder results not present")
+    merton = rerun_v2.dgp_params("v2", "D/calendar", "Merton")
+    assert merton["sigma_v"] == 0.0 and merton["sigma_J"] > 0 and merton["lambda_"] > 0
+    heston = rerun_v2.dgp_params("v2", "D/calendar", "Heston")
+    assert heston["sigma_J"] == 0.0 and heston["lambda_"] == 0.0 and heston["sigma_v"] > 0

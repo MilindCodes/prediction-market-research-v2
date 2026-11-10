@@ -54,7 +54,7 @@ import matplotlib.pyplot as plt
 
 import config
 from src.smm.bates_smm import (
-    BatesSMM, SMMResult, _j_test, compute_moments, MOMENT_LABELS, N_MOMENTS
+    BatesSMM, SMMResult, _j_test, compute_moments
 )
 from src.figstyle import apply_publication_style, save_figure
 from src.smm.stylized_facts import (

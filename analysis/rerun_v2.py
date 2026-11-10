@@ -57,7 +57,10 @@ import config
 from src.smm import panel_moments as pm
 from src.smm.bates_smm import BatesSMM
 from src.smm.nested_ladder import (
-    NestedLadder, bucketing_analysis, processed_dir, sampling_rows,
+    NestedLadder,
+    bucketing_analysis,
+    processed_dir,
+    sampling_rows,
     truncation_sensitivity,
 )
 from src.smm.panel import SAMPLING_SPEC_LABELS, load_sampling_panel
@@ -67,12 +70,14 @@ KAPPA_INIT = 5.0
 MAIN_RUN = {"n_sim_multiplier": 20, "n_bootstrap": 400, "n_restarts": 3}
 
 SPECS = SAMPLING_SPEC_LABELS
-NULL_MODELS = ("Heston", "Bates", "ConstantVol")    # append only (seed)
+NULL_MODELS = ("Heston", "Bates", "ConstantVol", "Merton")    # append only (seed)
 REPS = {"D/calendar": 100, "D/revision": 100}       # others: DEFAULT_REPS
 DEFAULT_REPS = 50
 POWER_SPEC, POWER_REPS = "D/calendar", 100
 CV_NULL_REPS = 50            # constant-vol panels: size of the "need SV?" test
-_SUFFIX = {"Heston": "", "Bates": "_bates_power", "ConstantVol": "_constantvol_null"}
+MERTON_NULL_REPS = 50        # jump-only panels: size of "need SV, given jumps?"
+_SUFFIX = {"Heston": "", "Bates": "_bates_power", "ConstantVol": "_constantvol_null",
+           "Merton": "_merton_null"}
 MAX_POOL_RESTARTS = 20
 
 # name → (BatesSMM options on top of MAIN_RUN, start from legacy?).  Order is
@@ -230,11 +235,12 @@ def real_diff_j(variant: str, spec: str) -> float:
 
 
 def dgp_params(variant: str, spec: str, null_model: str) -> dict:
-    """LATENT data-generating parameters: the fitted Heston model (no jumps)
-    or the fitted Bates model, with the stale-quote probability each solved for."""
+    """LATENT data-generating parameters of one fitted rung of the ladder
+    (Heston and ConstantVol have no jumps; Bates and Merton do), with the
+    stale-quote probability that rung solved for."""
     cal = make_calibrator(variant)
     r = ladder_row(variant, spec, null_model)
-    jumps = null_model == "Bates"
+    jumps = null_model in ("Bates", "Merton")
     sigma_j = float(r["sigma_J"]) if jumps else 0.0
     lam = float(r["lambda"]) if jumps else 0.0
     stale = float(r["stale_q"]) if "stale_q" in r and np.isfinite(r["stale_q"]) else 0.0
@@ -355,11 +361,12 @@ def summarise(variant: str, spec: str, null_model: str, df: pd.DataFrame) -> dic
     }
 
 
-def _jobs(variant: str, specs: list[str], reps: "int | None", power: bool) -> list[tuple]:
+def _jobs(variant: str, specs: list[str], reps: int | None, power: bool) -> list[tuple]:
     jobs = [(s, "Heston", reps or REPS.get(s, DEFAULT_REPS)) for s in specs]
     if power and POWER_SPEC in specs:
         jobs.append((POWER_SPEC, "Bates", reps or POWER_REPS))
         jobs.append((POWER_SPEC, "ConstantVol", reps or CV_NULL_REPS))
+        jobs.append((POWER_SPEC, "Merton", reps or MERTON_NULL_REPS))
     return jobs
 
 
@@ -376,7 +383,7 @@ def _write_summary(variant: str, jobs: list[tuple]) -> pd.DataFrame:
     return out
 
 
-def run_bootstrap(variant: str, specs: list[str], reps: "int | None", power: bool,
+def run_bootstrap(variant: str, specs: list[str], reps: int | None, power: bool,
                   workers: int) -> pd.DataFrame:
     import multiprocessing as mp
     if not pm.HAVE_NUMBA:
@@ -451,16 +458,27 @@ def run_validate(variant: str, spec: str = POWER_SPEC) -> dict[str, pd.DataFrame
     null = _load_done(variant, spec, "Heston")
     alt = _load_done(variant, spec, "Bates")
     cv = _load_done(variant, spec, "ConstantVol")
+    mer = _load_done(variant, spec, "Merton")
 
     def _ok(df):
-        return df[df["error"].fillna("") == ""] if len(df) else df
+        if not len(df):
+            return df
+        df = df[df["error"].fillna("") == ""].copy()
+        # "need SV, given jumps?" — Merton → Bates, two extra parameters
+        df["diff_j_sv_jumps"] = df["j_merton"] - df["j_bates"]
+        df["p_chi2_sv_jumps"] = stats.chi2.sf(df["diff_j_sv_jumps"].clip(lower=0.0), 2)
+        df["p_j_cv"] = stats.chi2.sf(df["j_cv"], 5)
+        return df
 
-    null_ok, alt_ok, cv_ok = _ok(null), _ok(alt), _ok(cv)
+    null_ok, alt_ok, cv_ok, mer_ok = _ok(null), _ok(alt), _ok(cv), _ok(mer)
     out: dict[str, pd.DataFrame] = {}
     alphas = (0.10, 0.05, 0.01)
     real = {"diff_j": real_diff_j(variant, spec), "diff_j_sv": real_diff_j_sv(variant, spec),
             "j_heston": float(ladder_row(variant, spec, "Heston")["j_stat"]),
-            "j_bates": float(ladder_row(variant, spec, "Bates")["j_stat"])}
+            "j_bates": float(ladder_row(variant, spec, "Bates")["j_stat"]),
+            "j_cv": float(ladder_row(variant, spec, "ConstantVol")["j_stat"]),
+            "diff_j_sv_jumps": float(ladder_row(variant, spec, "Merton")["j_stat"]
+                                     - ladder_row(variant, spec, "Bates")["j_stat"])}
 
     def _size_rows(dgp, df, n_all, test, pcol, stat, dof, nominal=True):
         rows = []
@@ -490,6 +508,14 @@ def run_validate(variant: str, spec: str = POWER_SPEC) -> dict[str, pd.DataFrame
                    "p_chi2_jumps", "diff_j", 1)
         + _size_rows("ConstantVol (no SV, no jumps)", cv_ok, len(cv),
                      "need SV? ΔJ ConstantVol→Heston", "p_chi2_sv", "diff_j_sv", 2)
+        + _size_rows("ConstantVol (no SV, no jumps)", cv_ok, len(cv),
+                     "need SV, given jumps? ΔJ Merton→Bates",
+                     "p_chi2_sv_jumps", "diff_j_sv_jumps", 2)
+        + _size_rows("Merton (jumps, no SV)", mer_ok, len(mer),
+                     "need SV, given jumps? ΔJ Merton→Bates",
+                     "p_chi2_sv_jumps", "diff_j_sv_jumps", 2)
+        + _size_rows("ConstantVol (no SV, no jumps)", cv_ok, len(cv),
+                     "overall fit: J(ConstantVol)", "p_j_cv", "j_cv", 5)
         + _size_rows("Heston (no jumps)", null_ok, len(null), "overall fit: J(Heston)",
                      "p_j_heston", "j_heston", 3)
         + _size_rows("Bates (fitted)", alt_ok, len(alt), "overall fit: J(Bates)",
@@ -507,6 +533,8 @@ def run_validate(variant: str, spec: str = POWER_SPEC) -> dict[str, pd.DataFrame
          "p_chi2_sv", "diff_j_sv", 2, cv_ok),
         ("Bates (fitted)", alt_ok, len(alt), "need SV? ΔJ ConstantVol→Heston",
          "p_chi2_sv", "diff_j_sv", 2, cv_ok),
+        ("Bates (fitted)", alt_ok, len(alt), "need SV, given jumps? ΔJ Merton→Bates",
+         "p_chi2_sv_jumps", "diff_j_sv_jumps", 2, mer_ok),
     ):
         n = len(df)
         if not n:
@@ -604,7 +632,7 @@ def run_compare(variant: str = "v2") -> dict[str, pd.DataFrame]:
 # CLI
 # ---------------------------------------------------------------------------
 
-def main(argv: "list[str] | None" = None) -> None:
+def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("step", choices=["ladders", "sensitivities", "bootstrap", "validate",
                                      "compare"])
