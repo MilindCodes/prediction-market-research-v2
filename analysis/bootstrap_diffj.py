@@ -1,4 +1,10 @@
-"""Parametric bootstrap for the difference-in-J jump test (§4.4 / §4.8).
+"""Parametric bootstrap for the difference-in-J jump test (§4.4 / §4.8) — v1.
+
+This is the bootstrap behind the FIRST draft: it runs the v1 estimator
+(BatesSMM.legacy) and writes data/exports/bootstrap_diffj_*.csv.  It is kept
+so those numbers stay reproducible.  The corrected estimator's bootstrap,
+whose null panels go through the clip / tick / stale-quote observation
+process, is `python -m analysis.rerun_v2 bootstrap` (data/exports/v2/).
 
 The ladder's "need jumps?" verdict reads ΔJ = J(Heston) − J(Bates) against
 χ²(1).  On panels simulated with no jumps at all that test still rejects in
@@ -62,6 +68,7 @@ import config
 from src.smm import bates_smm
 from src.smm.bates_smm import BatesSMM
 from src.smm.nested_ladder import NestedLadder
+from src.smm.panel import SAMPLING_SPEC_LABELS, load_sampling_panel
 
 # Bound at import, before _install() can repoint the module attribute.
 _python_simulate_path = bates_smm._simulate_path
@@ -76,8 +83,7 @@ MAIN_RUN = {"n_sim_multiplier": 20, "n_bootstrap": 400, "n_restarts": 3}
 KAPPA_INIT = 5.0
 
 # Order is part of the seed: append new specs, never reorder.
-SPECS = ("D/calendar", "2D/calendar", "3D/calendar", "4D/calendar",
-         "D/revision", "D/calendar-matched")
+SPECS = SAMPLING_SPEC_LABELS
 NULL_MODELS = ("Heston", "Bates")
 REPS = {"D/calendar": 100, "D/revision": 100}       # others: DEFAULT_REPS
 DEFAULT_REPS = 50
@@ -124,7 +130,7 @@ def _install() -> None:
 
 def check_simulator(n: int = 82_820, n_random: int = 40) -> int:
     """Raise unless the Numba copy reproduces the original path bit for bit."""
-    randoms = BatesSMM()._draw_randoms(n, rho=0.0)
+    randoms = BatesSMM.legacy()._draw_randoms(n, rho=0.0)
     ladder = pd.read_csv(LADDER_CSV)
     cases = [tuple(r) for r in ladder[["sigma_v", "sigma_J", "kappa", "theta", "lambda"]]
              .itertuples(index=False)]
@@ -147,17 +153,11 @@ def check_simulator(n: int = 82_820, n_random: int = 40) -> int:
 
 def load_panel(spec: str) -> pd.DataFrame:
     """The real panel behind one row of smm_sampling_ladder_full.csv."""
-    freq, sampling = spec.split("/")
-    if sampling == "calendar-matched":
-        daily = load_panel("D/calendar")
-        kept = load_panel("D/revision")["contract_id"].unique()
-        panel = daily[daily["contract_id"].isin(kept)].reset_index(drop=True)
-        if len(panel) != 3913:
-            raise AssertionError(f"D/calendar-matched has {len(panel)} rows, expected 3,913")
-        return panel
-    name = ("smm_panel.parquet" if spec == "D/calendar"
-            else f"smm_panel_{freq.lower()}_{sampling}.parquet")
-    return pd.read_parquet(PROCESSED / name)
+    with contextlib.redirect_stdout(io.StringIO()):     # the builder prints
+        panel = load_sampling_panel(spec)
+    if spec == "D/calendar-matched" and len(panel) != 3913:
+        raise AssertionError(f"D/calendar-matched has {len(panel)} rows, expected 3,913")
+    return panel
 
 
 def ladder_row(spec: str, model: str) -> pd.Series:
@@ -202,7 +202,7 @@ def _seed(spec: str, null_model: str, rep: int) -> np.random.SeedSequence:
 
 
 def _fit(panel: pd.DataFrame):
-    ladder = NestedLadder(calibrator=BatesSMM(**MAIN_RUN), kappa_init=KAPPA_INIT)
+    ladder = NestedLadder(calibrator=BatesSMM.legacy(**MAIN_RUN), kappa_init=KAPPA_INIT)
     with contextlib.redirect_stdout(io.StringIO()):     # run_selection always prints
         return ladder.run_selection(panel, verbose=False, save_as=None, moment_table_as=None)
 

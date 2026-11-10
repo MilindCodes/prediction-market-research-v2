@@ -34,12 +34,14 @@ MODULES = [
     "src.models.implied_vol",
     "src.smm",
     "src.smm.bates_smm",
+    "src.smm.panel_moments",
     "src.smm.panel",
     "src.smm.nested_ladder",
     "src.smm.stylized_facts",
     "analysis",
     "analysis.model_comparison",
     "analysis.plots",
+    "analysis.rerun_v2",
 ]
 
 

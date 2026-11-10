@@ -238,6 +238,46 @@ Builds the price panel, computes stylised facts, estimates Bates by SMM through
 a nested optimiser ladder, and runs the sensitivity analyses. Run
 `python run_smm.py help` for the current step list.
 
+#### What changed in the SMM estimator (v2) and why
+
+Independent validation of the first draft found three problems in the
+estimator. All three are fixed; each fix sits behind a switch on `BatesSMM`,
+so old and new behaviour can be compared directly. `BatesSMM()` is the
+corrected estimator, `BatesSMM.legacy()` is the estimator behind the first
+draft, and the tag `v1-paper-draft` is the repository as it stood then.
+
+| | Problem in v1 | Fix | Switch (v1 value) |
+| --- | --- | --- | --- |
+| 1 | **J and the SEs were scaled by n twice.** W is 1 / (bootstrap variance of the full-sample moments), so it already grows with n; the J-test multiplied by n again and the SE formula divided by n again. J was ~4,141× too large on the daily panel and SEs √4,141× too small. Point estimates were unaffected. | `J = g'Wg / (1 + n_real/n_sim)`, `avar = (G'WG)⁻¹`. | `j_scaling` (`"legacy_n"`) |
+| 2 | **Pooling across contracts faked persistence and fat tails.** Shape moments were computed on one concatenated series. Contracts differ ten-fold in variance, and a mixture of variances has excess kurtosis and autocorrelated squares even if no contract does. | Kurtosis, both ACF lags and the 95th percentile are computed **within each contract** and pooled with weights n_c, by one function for real and simulated data. The simulator produces replicate **panels shaped like the real one**. W comes from resampling **whole contracts**, which keeps the serial dependence an iid bootstrap of increments destroys. | `moments` (`"pooled"`), `weights` (`"iid"`), `q95` |
+| 3 | **The simulator could not produce the zeros.** 36.6% of daily increments are exactly zero (633 at the price clip, 882 repeated prices). They come from how prices are observed, not from the dynamics. | Each simulated contract starts at the real first price and is observed through the same clip, a price tick and a **stale-quote rule**; the zero share is a sixth moment and the stale-quote probability is solved, for every parameter vector, to match it. | `observation` (`"none"`), `tick`, `clip` |
+
+Two further changes came out of doing the above:
+
+- **Variance targeting** (`theta_mode`, v1 value `"truncated"`). v1 fixed θ at
+  the variance of increments within 3 SD — 29% of the daily panel's variance —
+  and let jump variance add on top, so σ_J was the only parameter that could
+  reach the variance moment. θ now targets the full variance and the diffusion
+  gets θ − λσ_J². With an observation process, θ is solved *through* it (the
+  latent variance at which constant vol reproduces the observed variance).
+- **Tick rounding alone does not explain the zeros.** A daily move in log-odds
+  is many ticks wide: a 0.001 tick yields ~2% repeated prices against 21% in
+  the data. `observation="tick"` is kept as a switch; the stale-quote version
+  is the default.
+- **Use simulated p-values, not χ², for everything except the jump test.**
+  With 39 contracts the weights are noisy, and the J-statistic at the true
+  model is heavy-tailed. The Heston→Bates difference is correctly sized (3%
+  rejections at a nominal 5%); the SV differences and the overall J are not
+  (16–40% and 25%). `analysis.rerun_v2 bootstrap` simulates the reference
+  distributions from no-jump, constant-vol and jump-only panels.
+
+Corrected runs write under `data/processed/v2/` and `data/exports/v2/` and
+never over the v1 CSVs. `python run_smm.py <step> --legacy` runs any step with
+the v1 estimator into the v1 paths. The sampling panels, including
+`D/calendar-matched`, are all built by `src.smm.panel.load_sampling_panel`.
+The results, old against new, are in
+[`docs/smm_v2_summary.md`](docs/smm_v2_summary.md).
+
 ### `analysis/` — standalone Section 4 checks
 
 Each runs with `python -m analysis.<name>` and writes to `data/exports/`.
@@ -245,7 +285,8 @@ Each runs with `python -m analysis.<name>` and writes to `data/exports/`.
 | Script | What it does |
 | --- | --- |
 | `fomc_event_test` | Model-free jump evidence. It dates every daily increment, compares \|ΔX\| on FOMC announcement days (mid-life vs the contract's own resolution) with all other days, and tests the gap with a within-contract permutation test. Writes `fomc_event_test.csv` in seconds. |
-| `bootstrap_diffj` | Replaces the χ² p-value of the "need jumps?" ΔJ test. It simulates no-jump (Heston) panels shaped like each real panel, re-runs the full ladder on each, and reports where the real ΔJ falls. Writes `bootstrap_diffj_<spec>.csv` plus a summary. Needs `pip install numba`; takes a few hours on all cores and resumes if stopped. |
+| `rerun_v2` | Everything §4 cites, under the corrected estimator: `ladders` (full ladder on the six sampling panels), `sensitivities` (truncation, bucketing), `bootstrap` (ΔJ bootstrap whose no-jump panels go through the clip / tick / stale-quote observation process), `validate` (size, power and parameter recovery from simulated panels) and `compare` (old vs new). `--variant` switches individual fixes on or off. Writes to `data/processed/v2/` and `data/exports/v2/`. Needs `pip install numba`; the bootstrap takes a few hours on all cores and resumes if stopped. |
+| `bootstrap_diffj` | **v1, kept for reproducibility of the first draft.** Replaces the χ² p-value of the "need jumps?" ΔJ test. It simulates no-jump (Heston) panels shaped like each real panel, re-runs the full ladder on each, and reports where the real ΔJ falls. Writes `bootstrap_diffj_<spec>.csv` plus a summary. Needs `pip install numba`; takes a few hours on all cores and resumes if stopped. |
 | `mincer_zarnowitz` | Price-unbiasedness regression of outcomes on prices. |
 
 ---
@@ -261,7 +302,7 @@ Each runs with `python -m analysis.<name>` and writes to `data/exports/`.
 │   ├── kalshi/                # RSA-signed client, catalog, trade puller
 │   ├── polymarket/            # Gamma + CLOB clients, catalog, trade puller
 │   ├── models/                # black_scholes, heston, bates, implied_vol
-│   ├── smm/                   # panel, stylized_facts, bates_smm, nested_ladder
+│   ├── smm/                   # panel, stylized_facts, bates_smm, panel_moments, nested_ladder
 │   └── cleaning.py            # Quality flags and degenerate-fit detection
 ├── analysis/
 │   ├── model_comparison.py    # MSE, AIC, BIC, QLIKE
