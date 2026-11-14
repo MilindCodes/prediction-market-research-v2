@@ -1,0 +1,3 @@
+spec,null_model,n_reps,n_ok,n_errors,real_diff_j,chi2_p_real,n_ge_real,p_value,p_conservative,sim_median,sim_q90,sim_q95,sim_q99,sim_max,chi2_rejects_share
+D/calendar,Heston,40,40,0,4.284853,0.038453,0,0.024390,0.024390,0.005768,1.089478,1.279862,2.367003,2.426888,0.000000
+D/calendar,Bates,40,40,0,4.284853,0.038453,8,0.219512,0.219512,1.147485,6.113285,9.462627,10.178496,10.186202,0.250000

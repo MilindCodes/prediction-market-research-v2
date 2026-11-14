@@ -54,12 +54,29 @@ import matplotlib.pyplot as plt
 
 import config
 from src.smm.bates_smm import (
-    BatesSMM, SMMResult, _j_test, compute_moments, MOMENT_LABELS, N_MOMENTS
+    BatesSMM, SMMResult, _j_test, compute_moments
 )
 from src.figstyle import apply_publication_style, save_figure
 from src.smm.stylized_facts import (
     StylizedFacts, _decompose_panel, _predetermined_p,
 )
+
+
+# ---------------------------------------------------------------------------
+# Where results are written
+# ---------------------------------------------------------------------------
+
+def processed_dir(calibrator: "BatesSMM | None" = None) -> Path:
+    """Directory result CSVs go to for this calibrator.
+
+    data/processed/ for the all-legacy (v1) estimator, data/processed/v2/
+    for anything with a fix switched on — so a corrected run can never
+    overwrite the CSVs the first draft cites.
+    """
+    sub = getattr(calibrator, "output_subdir", "") if calibrator is not None else ""
+    out = config.DATA_DIR / "processed" / sub if sub else config.DATA_DIR / "processed"
+    out.mkdir(parents=True, exist_ok=True)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +189,7 @@ class NestedLadder:
         self.kappa_init = kappa_init
         self.rho = rho
         self.figures_dir = (
-            figures_dir or (config.DATA_DIR / "processed" / "figures")
+            figures_dir or (processed_dir(self.calibrator) / "figures")
         )
         self.figures_dir.mkdir(parents=True, exist_ok=True)
 
@@ -193,6 +210,7 @@ class NestedLadder:
         the headline §4.4 artifacts.
         """
         cache = self.calibrator.prepare(panel)
+        self.last_cache = cache        # for diagnostics that need the CRN draws
 
         if verbose:
             print(f"\n=== §4.4 Nested Ladder — selection run (κ free) ===")
@@ -206,7 +224,8 @@ class NestedLadder:
         if save_as:
             self._save_results_csv([lr], filename=save_as)
         if moment_table_as:
-            self._save_moment_table(lr, filename=moment_table_as)
+            self._save_moment_table(lr, filename=moment_table_as,
+                                    out_dir=processed_dir(self.calibrator))
         return lr
 
     def run(
@@ -299,7 +318,7 @@ class NestedLadder:
                     "j_pvalue": res.j_pvalue, "n_real": res.n_real,
                 })
         df = pd.DataFrame(rows)
-        out_path = config.DATA_DIR / "processed" / "smm_family_split.csv"
+        out_path = processed_dir(self.calibrator) / "smm_family_split.csv"
         df.to_csv(out_path, index=False, float_format="%.6f")
         print(f"\nFamily split results saved: {out_path}")
         return out
@@ -332,7 +351,8 @@ class NestedLadder:
         # Overlay: empirical vs simulated kurtosis-by-k
         res_real = self._empirical_facts(panel)
         self._plot_validation_overlay(res_real, res_sim, selected_result)
-        self._save_validation_table(res_real, res_sim, selected_result.model)
+        self._save_validation_table(res_real, res_sim, selected_result.model,
+                                    out_dir=processed_dir(self.calibrator))
 
     # ------------------------------------------------------------------
     # Internal
@@ -512,7 +532,7 @@ class NestedLadder:
     def _moment_table(*results: SMMResult) -> pd.DataFrame:
         rows = []
         for r in results:
-            for j, label in enumerate(MOMENT_LABELS):
+            for j, label in enumerate(r.moment_labels):
                 rows.append({
                     "Model": r.model,
                     "Moment": label,
@@ -530,12 +550,17 @@ class NestedLadder:
         cache: dict,
     ) -> np.ndarray:
         from src.smm.bates_smm import _simulate_path
+        if randoms.get("kind") == "panel":
+            # §4.7 overlays one long latent path; the v2 CRN draws are
+            # panel-shaped, so draw a long-path set for this purpose.
+            randoms = self.calibrator._draw_randoms(n_sim, rho=result.rho)
         dx = _simulate_path(
             sigma_v=result.sigma_v,
             sigma_J=result.sigma_J,
             randoms=randoms,
             kappa=result.kappa,
-            theta=result.theta,
+            theta=self.calibrator.latent_theta(
+                result.theta, result.lambda_, result.sigma_J),
             lambda_=result.lambda_,
             rho=result.rho,
             n_sim=n_sim,
@@ -584,6 +609,7 @@ class NestedLadder:
         real_facts: dict,
         sim_facts: dict,
         model: str,
+        out_dir: "Path | None" = None,
     ) -> pd.DataFrame:
         """§4.7 — empirical beside simulated, one row per statistic.
 
@@ -604,7 +630,7 @@ class NestedLadder:
                          "empirical": kag_r.get(k, np.nan),
                          "simulated": kag_s.get(k, np.nan)})
         df = pd.DataFrame(rows)
-        out = config.DATA_DIR / "processed" / f"validation_{model}.csv"
+        out = (out_dir or processed_dir()) / f"validation_{model}.csv"
         df.to_csv(out, index=False, float_format="%.6f")
         print(f"  Validation table: {out}")
         return df
@@ -698,6 +724,7 @@ class NestedLadder:
     def _save_moment_table(
         lr: LadderResult,
         filename: str = "smm_moment_table_main.csv",
+        out_dir: "Path | None" = None,
     ) -> pd.DataFrame:
         """§4.5/§4.6 — export the five real moments beside the five simulated
         moments at each model's optimum.
@@ -711,14 +738,14 @@ class NestedLadder:
         target = models[0].moments_real
         denom = np.maximum(np.abs(target), 1e-10)
 
-        data: dict = {"Moment": list(MOMENT_LABELS), "Target": list(target)}
+        data: dict = {"Moment": list(models[0].moment_labels), "Target": list(target)}
         for m in models:
             data[m.model] = list(m.moments_sim)
         for m in models:
             data[f"relmiss_{m.model}"] = list((m.moments_sim - target) / denom)
 
         df = pd.DataFrame(data)
-        out = config.DATA_DIR / "processed" / filename
+        out = (out_dir or processed_dir()) / filename
         df.to_csv(out, index=False, float_format="%.6f")
         print(f"Moment table (target vs achieved) saved: {out}")
         return df
@@ -749,8 +776,10 @@ class NestedLadder:
                     "n_sim": res.n_sim,
                     "objective": res.objective_value,
                 })
+                if not self.calibrator.is_legacy:      # v1 CSV schema unchanged
+                    rows[-1]["stale_q"] = res.stale_q
         df = pd.DataFrame(rows)
-        out = config.DATA_DIR / "processed" / filename
+        out = processed_dir(self.calibrator) / filename
         df.to_csv(out, index=False, float_format="%.6f")
         print(f"\nLadder results saved: {out}")
 
@@ -762,6 +791,7 @@ class NestedLadder:
 def moment_selection_analysis(
     ladder_result: LadderResult,
     figures_dir: "Path | None" = None,
+    out_dir: "Path | None" = None,
 ) -> pd.DataFrame:
     """§4.6 — Explicitly show which moments each model hits and misses.
 
@@ -775,7 +805,8 @@ def moment_selection_analysis(
     Returns a wide DataFrame: moments as rows, models as columns.
     Saves a heatmap figure.
     """
-    figures_dir = figures_dir or (config.DATA_DIR / "processed" / "figures")
+    out_dir = out_dir or processed_dir()
+    figures_dir = figures_dir or (out_dir / "figures")
     Path(figures_dir).mkdir(parents=True, exist_ok=True)
 
     models = [
@@ -785,8 +816,9 @@ def moment_selection_analysis(
         ladder_result.merton,
     ]
     target = models[0].moments_real
+    labels = list(models[0].moment_labels)
 
-    data: dict[str, list] = {"Moment": MOMENT_LABELS, "Target": list(target)}
+    data: dict[str, list] = {"Moment": labels, "Target": list(target)}
     for m in models:
         data[m.model] = list(m.moments_sim)
 
@@ -805,8 +837,8 @@ def moment_selection_analysis(
 
     # Narrative
     print("\nMoment-level diagnosis:")
-    acf_moments  = ["ACF(ΔX², lag=1)", "ACF(ΔX², lag=2)"]
-    tail_moments = ["Kurt(ΔX)", "95th pct(ΔX)"]
+    acf_moments  = [m for m in labels if "ACF" in m]
+    tail_moments = [m for m in labels if "Kurt" in m or "95th" in m]
 
     for row in df.itertuples():
         moment = row.Moment
@@ -852,8 +884,8 @@ def moment_selection_analysis(
         fig, ax = plt.subplots(figsize=(9, 4))
         im = ax.imshow(np.abs(miss_data.T), aspect="auto",
                        cmap=plt.cm.RdYlGn_r, vmin=0.0, vmax=1.0)
-        ax.set_xticks(range(N_MOMENTS))
-        ax.set_xticklabels(MOMENT_LABELS, rotation=25, ha="right", fontsize=8)
+        ax.set_xticks(range(len(labels)))
+        ax.set_xticklabels(labels, rotation=25, ha="right", fontsize=8)
         ax.set_yticks(range(len(model_labels)))
         ax.set_yticklabels(model_labels)
         plt.colorbar(im, ax=ax,
@@ -861,7 +893,7 @@ def moment_selection_analysis(
         ax.set_title("§4.6 Moment fit by model  "
                      "(green = on target, red = misses; cells show signed miss)")
 
-        for i in range(N_MOMENTS):
+        for i in range(len(labels)):
             for j, m in enumerate(models):
                 val = miss_data[i, j]
                 ax.text(i, j, f"{val:+.2f}", ha="center", va="center",
@@ -877,7 +909,7 @@ def moment_selection_analysis(
 
     # The figure and the table must come from the same fit — export the
     # numbers behind the heatmap so §4.6 can cite them directly.
-    out_csv = config.DATA_DIR / "processed" / "smm_moment_selection.csv"
+    out_csv = out_dir / "smm_moment_selection.csv"
     df.to_csv(out_csv, index=False, float_format="%.6f")
     print(f"  Table:  {out_csv}")
 
@@ -924,7 +956,7 @@ def truncation_sensitivity(
         (_DEFAULT_LO, _DEFAULT_HI),  # baseline [0.02, 0.98]
         (0.01, 0.99),                 # wider — spec's referee sensitivity
     ]
-    figures_dir = figures_dir or (config.DATA_DIR / "processed" / "figures")
+    figures_dir = figures_dir or (processed_dir(calibrator) / "figures")
 
     tickers = list(pd.unique(panel_base["contract_id"]))
     saved_lo, saved_hi = _panel_mod.CLIP_LO, _panel_mod.CLIP_HI
@@ -945,12 +977,21 @@ def truncation_sensitivity(
                 def panel_path(self):
                     return out_panel
 
-            panel = _ClipBuilder(client=None).build(tickers=tickers, force=True)
+            # v1 rebuilt on every run; corrected runs read the cached panel
+            # so old and new are fitted to byte-identical data.
+            panel = _ClipBuilder(client=None).build(
+                tickers=tickers, force=calibrator.is_legacy)
+
+            # The simulator's observation process must clip where the panel
+            # was clipped.
+            cal_clip = calibrator if calibrator.observation == "none" \
+                else calibrator.replace(clip=(clip_lo, clip_hi))
 
             # Same ladder path as §4.4 so the baseline row is comparable.
-            ladder = NestedLadder(calibrator=calibrator, kappa_init=kappa)
-            res = ladder.run_selection(panel, verbose=False,
-                                       save_as=None, moment_table_as=None).bates
+            ladder = NestedLadder(calibrator=cal_clip, kappa_init=kappa)
+            lr_clip = ladder.run_selection(panel, verbose=False,
+                                           save_as=None, moment_table_as=None)
+            res = lr_clip.bates
             print(f"    σ_v={res.sigma_v:.4f}  σ_J={res.sigma_J:.4f}  "
                   f"κ̂={res.kappa:.6f}  J={res.j_stat:.3f}  n={res.n_real}")
 
@@ -962,6 +1003,15 @@ def truncation_sensitivity(
                 "j_stat": res.j_stat, "j_pvalue": res.j_pvalue,
                 "n_real": res.n_real,
             })
+            if not calibrator.is_legacy:
+                rows[-1].update({
+                    "se_sigma_v": res.se_sigma_v, "se_sigma_J": res.se_sigma_J,
+                    "j_dof": res.j_dof, "stale_q": res.stale_q,
+                    "j_heston": lr_clip.heston.j_stat,
+                    "diffj_sv": lr_clip.test_sv.diff_j, "p_sv": lr_clip.test_sv.p_value,
+                    "diffj_jumps": lr_clip.test_jumps.diff_j,
+                    "p_jumps": lr_clip.test_jumps.p_value,
+                })
     finally:
         _panel_mod.CLIP_LO, _panel_mod.CLIP_HI = saved_lo, saved_hi
 
@@ -969,7 +1019,7 @@ def truncation_sensitivity(
     print("\n=== §4.8 Truncation sensitivity ===")
     print(df.to_string(index=False, float_format="{:.4f}".format))
 
-    out = config.DATA_DIR / "processed" / "smm_truncation_sensitivity.csv"
+    out = processed_dir(calibrator) / "smm_truncation_sensitivity.csv"
     df.to_csv(out, index=False, float_format="%.6f")
     print(f"Saved: {out}")
     return df
@@ -1023,7 +1073,7 @@ def frequency_sensitivity(
     print("\n=== §4.8 Frequency sensitivity ===")
     if not df.empty:
         print(df.to_string(index=False, float_format="{:.4f}".format))
-        out = config.DATA_DIR / "processed" / "smm_frequency_sensitivity.csv"
+        out = processed_dir(calibrator) / "smm_frequency_sensitivity.csv"
         df.to_csv(out, index=False, float_format="%.6f")
         print(f"Saved: {out}")
     return df
@@ -1039,6 +1089,7 @@ SAMPLING_SPECS: list[tuple[str, str]] = [
     ("3D", "calendar"),
     ("4D", "calendar"),
     ("D",  "revision"),   # event time — zero-increment mass is 0 by construction
+    ("D",  "calendar-matched"),  # daily grid, contracts of the revision panel
 ]
 
 
@@ -1074,6 +1125,76 @@ def _panel_descriptives(panel: pd.DataFrame) -> dict:
         "mean_dt_steps": float(dt.mean()) if dt is not None and len(dt) else 1.0,
         "p95_dt_steps": float(dt.quantile(0.95)) if dt is not None and len(dt) else 1.0,
     }
+
+
+def sampling_rows(
+    freq: str,
+    sampling: str,
+    panel: pd.DataFrame,
+    lr: LadderResult,
+    calibrator: "BatesSMM | None" = None,
+    cache: "dict | None" = None,
+) -> tuple[dict, list[dict]]:
+    """One sampling spec's summary row and per-model rows for the §4.8 CSVs.
+
+    For a non-legacy calibrator the rows also carry the observation-process
+    calibration check: the real share of unchanged prices (split into
+    at-the-clip and other) beside the simulated one at the fitted Heston and
+    Bates models, and the stale-quote probability each model solved for.
+    """
+    label = f"{freq}/{sampling}"
+    row = {"freq": freq, "sampling": sampling, "spec": label}
+    row.update(_panel_descriptives(panel))
+    row.update({
+        "theta":          lr.bates.theta,
+        "lambda":         lr.bates.lambda_,
+        "sigma_v_heston": lr.heston.sigma_v,
+        "sigma_v_bates":  lr.bates.sigma_v,
+        "sigma_J_bates":  lr.bates.sigma_J,
+        "sigma_J_merton": lr.merton.sigma_J,
+        "kappa_bates":    lr.bates.kappa,
+        "j_cv":           lr.constant_vol.j_stat,
+        "j_heston":       lr.heston.j_stat,
+        "j_merton":       lr.merton.j_stat,
+        "j_bates":        lr.bates.j_stat,
+        "diffj_sv":       lr.test_sv.diff_j,
+        "p_sv":           lr.test_sv.p_value,
+        "sv_selected":    lr.test_sv.reject_at_05,
+        "diffj_jumps":    lr.test_jumps.diff_j,
+        "p_jumps":        lr.test_jumps.p_value,
+        "jumps_selected": lr.test_jumps.reject_at_05,
+    })
+    v2 = calibrator is not None and not calibrator.is_legacy
+    if v2 and cache is not None and "zero_real" in cache:
+        row["theta_target"] = cache["theta_target"]
+        row["kappa_heston"] = lr.heston.kappa
+        for k, v in cache["zero_real"].items():
+            row[f"real_{k}"] = v
+        for name, res in (("heston", lr.heston), ("bates", lr.bates)):
+            for k, v in calibrator.simulated_zero_shares(res, cache).items():
+                row[f"sim_{k}_{name}"] = v
+
+    full = []
+    for res in (lr.constant_vol, lr.heston, lr.merton, lr.bates):
+        full.append({
+            "spec": label, "freq": freq, "sampling": sampling,
+            "model": res.model,
+            "sigma_v": res.sigma_v, "se_sigma_v": res.se_sigma_v,
+            "sigma_J": res.sigma_J, "se_sigma_J": res.se_sigma_J,
+            "kappa": res.kappa, "se_kappa": res.se_kappa,
+            "theta": res.theta, "lambda": res.lambda_,
+            "j_stat": res.j_stat, "j_dof": res.j_dof,
+            "j_pvalue": res.j_pvalue,
+            "n_real": res.n_real, "n_sim": res.n_sim,
+            "objective": res.objective_value,
+        })
+        if v2:
+            full[-1]["stale_q"] = res.stale_q
+            for lab, real, sim in zip(res.moment_labels, res.moments_real,
+                                      res.moments_sim):
+                full[-1][f"real[{lab}]"] = real
+                full[-1][f"sim[{lab}]"] = sim
+    return row, full
 
 
 def sampling_sensitivity(
@@ -1121,10 +1242,14 @@ def sampling_sensitivity(
     -------
     (summary, full) — one row per spec; one row per (spec, model).
     """
-    from src.smm.panel import SMMPanelBuilder
+    from src.smm.panel import load_sampling_panel
 
     calibrator = calibrator or BatesSMM()
     specs = specs or SAMPLING_SPECS
+    # v1 rebuilt every panel from raw on each sweep.  The corrected runs
+    # read the cached panels instead, so old and new numbers are computed
+    # on byte-identical data and nothing committed is rewritten.
+    rebuild = calibrator.is_legacy
 
     summary_rows: list[dict] = []
     full_rows: list[dict] = []
@@ -1133,12 +1258,11 @@ def sampling_sensitivity(
         label = f"{freq}/{sampling}"
         print(f"\n{'='*66}\n--- Sampling sensitivity: {label} ---\n{'='*66}")
 
-        builder = SMMPanelBuilder(freq=freq, sampling=sampling)
-        tickers = builder._load_catalog_tickers()
-        if not tickers:
-            print("  No tickers — run the catalog step first.")
+        try:
+            panel = load_sampling_panel(label, rebuild=rebuild)
+        except RuntimeError as e:
+            print(f"  {e}")
             continue
-        panel = builder.build(tickers=tickers, force=True)
 
         desc = _panel_descriptives(panel)
         print(f"  {desc['n_contracts']} contracts, {desc['n_increments']} "
@@ -1151,42 +1275,10 @@ def sampling_sensitivity(
         lr = ladder.run_selection(panel, verbose=verbose,
                                   save_as=None, moment_table_as=None)
 
-        row = {"freq": freq, "sampling": sampling, "spec": label}
-        row.update(desc)
-        row.update({
-            "theta":          lr.bates.theta,
-            "lambda":         lr.bates.lambda_,
-            "sigma_v_heston": lr.heston.sigma_v,
-            "sigma_v_bates":  lr.bates.sigma_v,
-            "sigma_J_bates":  lr.bates.sigma_J,
-            "sigma_J_merton": lr.merton.sigma_J,
-            "kappa_bates":    lr.bates.kappa,
-            "j_cv":           lr.constant_vol.j_stat,
-            "j_heston":       lr.heston.j_stat,
-            "j_merton":       lr.merton.j_stat,
-            "j_bates":        lr.bates.j_stat,
-            "diffj_sv":       lr.test_sv.diff_j,
-            "p_sv":           lr.test_sv.p_value,
-            "sv_selected":    lr.test_sv.reject_at_05,
-            "diffj_jumps":    lr.test_jumps.diff_j,
-            "p_jumps":        lr.test_jumps.p_value,
-            "jumps_selected": lr.test_jumps.reject_at_05,
-        })
+        row, full = sampling_rows(freq, sampling, panel, lr, calibrator,
+                                  getattr(ladder, "last_cache", None))
         summary_rows.append(row)
-
-        for res in (lr.constant_vol, lr.heston, lr.merton, lr.bates):
-            full_rows.append({
-                "spec": label, "freq": freq, "sampling": sampling,
-                "model": res.model,
-                "sigma_v": res.sigma_v, "se_sigma_v": res.se_sigma_v,
-                "sigma_J": res.sigma_J, "se_sigma_J": res.se_sigma_J,
-                "kappa": res.kappa, "se_kappa": res.se_kappa,
-                "theta": res.theta, "lambda": res.lambda_,
-                "j_stat": res.j_stat, "j_dof": res.j_dof,
-                "j_pvalue": res.j_pvalue,
-                "n_real": res.n_real, "n_sim": res.n_sim,
-                "objective": res.objective_value,
-            })
+        full_rows.extend(full)
 
     summary = pd.DataFrame(summary_rows)
     full    = pd.DataFrame(full_rows)
@@ -1210,8 +1302,8 @@ def sampling_sensitivity(
         print("\n  J levels are not comparable across rows (each panel has its")
         print("  own bootstrap W, θ and λ); the selection verdicts are.")
 
-        out_s = config.DATA_DIR / "processed" / "smm_sampling_sensitivity.csv"
-        out_f = config.DATA_DIR / "processed" / "smm_sampling_ladder_full.csv"
+        out_s = processed_dir(calibrator) / "smm_sampling_sensitivity.csv"
+        out_f = processed_dir(calibrator) / "smm_sampling_ladder_full.csv"
         summary.to_csv(out_s, index=False, float_format="%.6f")
         full.to_csv(out_f, index=False, float_format="%.6f")
         print(f"\nSaved: {out_s}")
@@ -1279,7 +1371,7 @@ def bucketing_analysis(
     print("\n=== §4.8 Cross-sectional bucketing ===")
     if not df.empty:
         print(df.to_string(index=False, float_format="{:.4f}".format))
-        out = config.DATA_DIR / "processed" / "smm_bucketing.csv"
+        out = processed_dir(calibrator) / "smm_bucketing.csv"
         df.to_csv(out, index=False, float_format="%.6f")
         print(f"Saved: {out}")
     return df

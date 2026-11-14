@@ -1,0 +1,4 @@
+variant,spec,dgp,alpha,n_runs,jumps_selected_chi2_share,jumps_selected_simulated_cv_share,simulated_critical,chi2_critical,diff_j_median,n_errors
+theta_truncated,D/calendar,Bates (fitted),0.100000,40,0.325000,0.550000,1.089478,2.705543,1.147485,0
+theta_truncated,D/calendar,Bates (fitted),0.050000,40,0.250000,0.475000,1.279862,3.841459,1.147485,0
+theta_truncated,D/calendar,Bates (fitted),0.010000,40,0.100000,0.325000,2.367003,6.634897,1.147485,0

@@ -52,6 +52,36 @@ CLIP_LO: float = config.LOG_ODDS_CLIP_LO
 CLIP_HI: float = config.LOG_ODDS_CLIP_HI
 GRID_FREQ = "D"
 
+# Every sampling scheme the §4.8 sweep and the ΔJ bootstrap run, as
+# "<grid>/<sampling>".  Order is part of the bootstrap's seed: append, never
+# reorder.
+SAMPLING_SPEC_LABELS: tuple[str, ...] = (
+    "D/calendar", "2D/calendar", "3D/calendar", "4D/calendar",
+    "D/revision", "D/calendar-matched",
+)
+
+
+def load_sampling_panel(spec: str, data_dir: "Path | None" = None,
+                        rebuild: bool = False) -> pd.DataFrame:
+    """The panel behind one sampling spec — the single place they are built.
+
+    "<grid>/calendar" and "<grid>/revision" come from SMMPanelBuilder (read
+    from the cached parquet unless `rebuild`).  "<grid>/calendar-matched" is
+    the calendar panel restricted to the contracts that survive revision
+    sampling on the same grid, so the calendar and revision rows of the
+    sweep can be compared on one set of contracts.  That panel used to be
+    assembled only inside analysis/bootstrap_diffj.py, which is why its row
+    in the sampling CSVs could not be regenerated from src/.
+    """
+    freq, sampling = spec.split("/")
+    if sampling == "calendar-matched":
+        calendar = load_sampling_panel(f"{freq}/calendar", data_dir, rebuild)
+        kept = load_sampling_panel(f"{freq}/revision", data_dir, rebuild)[
+            "contract_id"].unique()
+        return calendar[calendar["contract_id"].isin(kept)].reset_index(drop=True)
+    builder = SMMPanelBuilder(data_dir=data_dir, freq=freq, sampling=sampling)
+    return builder.build(force=rebuild)
+
 
 class SMMPanelBuilder:
     """Build the unified long panel required by §4.2 and §4.3.

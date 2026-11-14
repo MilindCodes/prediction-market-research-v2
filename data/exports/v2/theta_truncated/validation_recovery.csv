@@ -1,0 +1,9 @@
+variant,spec,dgp,parameter,fitted_model,true_value,n_runs,median,mean,sd,q05,q25,q75,q95,median_bias
+theta_truncated,D/calendar,Bates (fitted),sigma_v,Bates,0.497803,40,0.428691,0.430858,0.138236,0.156487,0.369579,0.513614,0.634044,-0.069112
+theta_truncated,D/calendar,Bates (fitted),sigma_J,Bates,1.175629,40,0.845814,0.667900,0.465973,0.000032,0.075016,1.057954,1.202677,-0.329815
+theta_truncated,D/calendar,Bates (fitted),kappa,Bates,0.580994,40,0.503552,0.494979,0.270259,0.010974,0.307115,0.667337,0.895173,-0.077442
+theta_truncated,D/calendar,Bates (fitted),stale_q,Bates,0.000000,40,0.065385,0.100053,0.097360,0.000000,0.024701,0.137174,0.271608,0.065385
+theta_truncated,D/calendar,Heston (no jumps),sigma_v,Heston,0.745243,40,0.599285,0.580250,0.115646,0.415548,0.520728,0.647937,0.729842,-0.145958
+theta_truncated,D/calendar,Heston (no jumps),kappa,Heston,0.733927,40,0.616874,0.576291,0.238092,0.225516,0.429901,0.699596,0.944861,-0.117053
+theta_truncated,D/calendar,Heston (no jumps),sigma_J,Bates,0.000000,40,0.000031,0.121667,0.219307,0.000000,0.000003,0.141476,0.605688,0.000031
+theta_truncated,D/calendar,Heston (no jumps),stale_q,Heston,0.000000,40,0.103901,0.101106,0.089465,0.000000,0.018540,0.156836,0.255357,0.103901
