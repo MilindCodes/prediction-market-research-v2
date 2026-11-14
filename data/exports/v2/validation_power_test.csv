@@ -8,6 +8,6 @@ v2,D/calendar,Heston (no jumps),need SV? ΔJ ConstantVol→Heston,0.010000,100,0
 v2,D/calendar,Bates (fitted),need SV? ΔJ ConstantVol→Heston,0.100000,100,0.570000,0.140000,18.274221,4.605170,5.376307,0
 v2,D/calendar,Bates (fitted),need SV? ΔJ ConstantVol→Heston,0.050000,100,0.460000,0.060000,25.190892,5.991465,5.376307,0
 v2,D/calendar,Bates (fitted),need SV? ΔJ ConstantVol→Heston,0.010000,100,0.340000,0.040000,33.347568,9.210340,5.376307,0
-v2,D/calendar,Bates (fitted),"need SV, given jumps? ΔJ Merton→Bates",0.100000,100,0.640000,0.320000,9.571700,4.605170,6.405033,0
-v2,D/calendar,Bates (fitted),"need SV, given jumps? ΔJ Merton→Bates",0.050000,100,0.510000,0.290000,10.118477,5.991465,6.405033,0
-v2,D/calendar,Bates (fitted),"need SV, given jumps? ΔJ Merton→Bates",0.010000,100,0.330000,0.150000,14.358459,9.210340,6.405033,0
+v2,D/calendar,Bates (fitted),"need SV, given jumps? ΔJ Merton→Bates",0.100000,100,0.640000,0.310000,9.680796,4.605170,6.405033,0
+v2,D/calendar,Bates (fitted),"need SV, given jumps? ΔJ Merton→Bates",0.050000,100,0.510000,0.200000,13.023139,5.991465,6.405033,0
+v2,D/calendar,Bates (fitted),"need SV, given jumps? ΔJ Merton→Bates",0.010000,100,0.330000,0.010000,35.051260,9.210340,6.405033,0

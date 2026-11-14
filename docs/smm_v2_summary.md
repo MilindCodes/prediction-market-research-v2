@@ -15,10 +15,10 @@ Everything here is rebuilt by `python -m analysis.rerun_v2 <step>`.
   nominal 5%) and 84% power.
 - **Stochastic volatility is borderline, not decisive.** χ² says SV is needed
   (p ≈ 0.002), but those tests are oversized: they reject in 40% of
-  constant-volatility panels and 16% of jump-only panels at a nominal 5%.
+  constant-volatility panels and 18% of jump-only panels at a nominal 5%.
   Against simulated panels, SV given jumps (Merton→Bates, ΔJ = 13.4) has
-  p = 0.039 (1 of 50 jump-only panels reaches it); SV without jumps
-  (ConstantVol→Heston, ΔJ = 12.2) has p = 0.18. Both are N = 50.
+  p = 0.050 (9 of 200 jump-only panels reach it), right on the 5% line; SV
+  without jumps (ConstantVol→Heston, ΔJ = 12.2) has p = 0.18 (N = 50).
 - **The v1 Bates fit was degenerate** (σ_v = 0.05, κ = 0.0003). v2 gives
   σ_v = 0.36, σ_J = 1.67, κ = 0.53, with standard errors that are now
   meaningful (v1 SEs were √4,141 ≈ 64× too small).
@@ -46,7 +46,7 @@ SEs in parentheses. λ = 0.0179 is pre-estimated, as in v1.
 | ΔJ need SV? (ConstantVol→Heston) | 621,898 | 150.2 | 12.24 |
 | — χ² p / simulated p | 0.000 / — | 0.000 / — | 0.002 / **0.18** (N = 50) |
 | ΔJ need SV, given jumps? (Merton→Bates) | 406,095 | 98.1 | 13.43 |
-| — χ² p / simulated p | 0.000 / — | 0.000 / — | 0.001 / **0.039** (N = 50) |
+| — χ² p / simulated p | 0.000 / — | 0.000 / — | 0.001 / **0.050** (N = 200) |
 | ΔJ need jumps? (Heston→Bates) | 479,017 | 115.7 | 11.30 |
 | — χ² p / bootstrap p | 0.000 / 0.010 | 0.000 / — | 0.0008 / **0.010** (N = 100) |
 | Overall J Bates: χ² p / simulated p | 0.000 / — | 0.000 / — | 0.005 / 0.050 |
@@ -91,7 +91,7 @@ CSVs: `data/exports/v2/validation_{null_test,power_test,recovery}.csv`.
 | Heston, no jumps | need jumps? | 100 | **3%** (CI 1–8%) | 1.81 (3.84) | 11.30 → 0.010 |
 | Constant vol | need SV? | 50 | **40%** (CI 28–54%) | 25.2 (5.99) | 12.24 → 0.18 |
 | Constant vol | need SV, given jumps? | 50 | 34% (CI 22–48%) | 24.7 (5.99) | 13.43 → 0.18 |
-| Merton, jumps only | need SV, given jumps? | 50 | **16%** (CI 8–29%) | 10.1 (5.99) | 13.43 → 0.039 |
+| Merton, jumps only | need SV, given jumps? | 200 | **18%** (CI 13–23%) | 13.0 (5.99) | 13.43 → 0.050 |
 | Constant vol | overall J(ConstantVol) | 50 | 32% | 78.0 (11.07) | 34.09 → 0.18 |
 | Heston, no jumps | overall J(Heston) | 100 | 25% | 16.8 (7.81) | 21.85 → 0.030 |
 | Bates | overall J(Bates) | 100 | 4% | 5.0 (5.99) | 10.56 → 0.050 |
@@ -100,7 +100,7 @@ CSVs: `data/exports/v2/validation_{null_test,power_test,recovery}.csv`.
 fitted Bates model: jumps selected in **84%** at 5% (93% at 10%, 61% at 1%)
 with χ² critical values, 96% with the simulated 5% point. The SV tests, by
 contrast, have little power once correctly sized: 10% for ConstantVol→Heston
-under a true Heston, 29% for Merton→Bates under the fitted Bates.
+under a true Heston, 20% for Merton→Bates under the fitted Bates.
 
 **Recovery** (median of 100 fits, interquartile range, truth):
 
@@ -157,10 +157,12 @@ terciles of 13 contracts each.
    contract-bootstrap weights are themselves noisy and move with the moments.
    It cancels in Heston→Bates, which is why the jump test is fine, and does
    not cancel in the SV differences. The spec asked for a null test of the
-   jump test only; I added a constant-vol null and a jump-only null (50
-   panels each) after seeing this. The p = 0.039 rests on one exceedance in
-   50, so it needs more replications before the paper leans on it
-   (`MERTON_NULL_REPS`; the run resumes).
+   jump test only; I added a constant-vol null (50 panels) and a jump-only
+   null after seeing this. The jump-only null first had 50 panels (p = 0.039,
+   one exceedance) and was extended to 200 on 2026-11-13: 9 exceedances,
+   p = 0.050, simulated 5% point 13.0 against a real statistic of 13.4. The
+   first 50 replications are unchanged; the 150 new ones had 8 exceedances.
+   SV given jumps sits on the 5% line, not inside it.
 4. **θ: variance targeting replaces the truncated plug-in** (not in the
    spec). v1's θ is the variance of increments within 3 SD, 29% of the total,
    so only σ_J could reach the variance moment. Keeping it, the corrected

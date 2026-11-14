@@ -75,7 +75,7 @@ REPS = {"D/calendar": 100, "D/revision": 100}       # others: DEFAULT_REPS
 DEFAULT_REPS = 50
 POWER_SPEC, POWER_REPS = "D/calendar", 100
 CV_NULL_REPS = 50            # constant-vol panels: size of the "need SV?" test
-MERTON_NULL_REPS = 50        # jump-only panels: size of "need SV, given jumps?"
+MERTON_NULL_REPS = 200       # jump-only panels: size of "need SV, given jumps?"
 _SUFFIX = {"Heston": "", "Bates": "_bates_power", "ConstantVol": "_constantvol_null",
            "Merton": "_merton_null"}
 MAX_POOL_RESTARTS = 20
