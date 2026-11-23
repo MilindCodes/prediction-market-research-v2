@@ -278,6 +278,11 @@ the v1 estimator into the v1 paths. The sampling panels, including
 The results, old against new, are in
 [`docs/smm_v2_summary.md`](docs/smm_v2_summary.md).
 
+**Platform note** The v2 pipeline runs on Windows, macOS, and Linux. The legacy v1 simulator (`BatesSMM.legacy()` and the `scaling_only` variant of `analysis.rerun_v2`) loads the C math library by name and runs only on macOS and Linux.
+
+#### Indepedent Check
+**S.Atluri, November 2026 (v1 estimator).** On a fresh clone, all 78 tests passed, and independent reruns of the selection and sampling-sensitivity analyses reproduced the committed results exactly. Simulation tests then found three problems fixed in v2: the J-statistic and SEs were scaled by n exactly twice; zero increments produced.
+
 ### `analysis/` — standalone Section 4 checks
 
 Each runs with `python -m analysis.<name>` and writes to `data/exports/`.
