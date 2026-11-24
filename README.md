@@ -280,8 +280,12 @@ The results, old against new, are in
 
 **Platform note** The v2 pipeline runs on Windows, macOS, and Linux. The legacy v1 simulator (`BatesSMM.legacy()` and the `scaling_only` variant of `analysis.rerun_v2`) loads the C math library by name and runs only on macOS and Linux.
 
-#### Indepedent Check
-**S.Atluri, November 2026 (v1 estimator).** On a fresh clone, all 78 tests passed, and independent reruns of the selection and sampling-sensitivity analyses reproduced the committed results exactly. Simulation tests then found three problems fixed in v2: the J-statistic and SEs were scaled by n exactly twice; zero increments produced.
+#### Independent Checks
+**S.Atluri, November 2026 (v1 estimator).** On a fresh clone, all 78 tests passed, and independent reruns of the selection and sampling-sensitivity analyses reproduced the committed results exactly. Simulation tests then found three problems fixed in v2: the J-statistic and SEs were scaled by n exactly twice; zero increments produced spurious jump selection (false positives in 10 of 10 jump-free panels with zeros); and pooled ACF moments mixed variance differences between contracts with within-contract clustering (lag-1 ACF 0.170 pooled vs. 0.134 within contracts). He also found that the committed
+`D/calendar-matched` row could not be regenerated from the repository code (fixed in v2).
+
+**R. Murray, November 2026 (v2 estimator, Windows 11 / Python 3.12).** On a fresh clone at commit `419c3ae`: all 111 tests pass; `analysis.rerun_v2 ladders` reproduces every committed v2 result exactly (differences only in line endings and recorded run times); the moment table matches (zero share 0.366, within-contract ACF 0.133 / 0.009); twenty freshly simulated jump-free panels are bit-identical to the committed runs, and the χ² jump test rejected in
+1 of 20 at the 5% level. Code review confirmed that J and the SEs carry no extra factor of n outside the legacy switch, that shape moments are computed within contracts by the same function for real and simulated data, that the weighting matrix resamples whole contracts, and that the clip, tick and stale-quote observation process applies only to simulated paths.
 
 ### `analysis/` — standalone Section 4 checks
 
